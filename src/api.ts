@@ -85,9 +85,16 @@ export function isBus(k: { naam: string }): boolean {
 
 // --- Opname ---
 
+/** Eén bus: een WAV met deze kanalen van de Rec bus. De naam is ook de
+ *  bestandsnaam, en zo stop je hem weer. */
+export interface BusOpname {
+  naam: string;
+  kanalen: number[];
+}
+
 export interface Opties {
-  /** De gewapende audiobussen: per bus een WAV met deze kanalen. */
-  bussen: { naam: string; kanalen: number[] }[];
+  /** Wat Record all start: de bussen waar een bron heen gaat. */
+  bussen: BusOpname[];
   /** De MIDI-ingang van de bus is gewapend. */
   midi: boolean;
   /** MIDI-bronpoort van de externe klok; null = intern. */
@@ -97,8 +104,12 @@ export interface Opties {
 
 export interface TransportStand {
   bezig: boolean;
+  /** De map van de laatst gestarte take. */
   map: string | null;
+  /** Hoe lang de oudste lopende take al loopt. */
   seconden: number;
+  /** Per bus die opneemt (op `BusOpname.naam`): hoe lang al. */
+  bussen: Record<string, number>;
   klok: { bpm: number | null; lock: boolean };
   fout: string | null;
 }
@@ -107,13 +118,41 @@ export const STIL: TransportStand = {
   bezig: false,
   map: null,
   seconden: 0,
+  bussen: {},
   klok: { bpm: null, lock: false },
   fout: null,
 };
 
-let nepTransport: TransportStand = STIL;
 let nepTransportVolger: ((t: TransportStand) => void) | undefined;
-let nepStart = 0;
+// Nep: per lopende bus wanneer hij begon, en wat Record all zou starten.
+const nepBussen = new Map<string, number>();
+let nepOpties: Opties | null = null;
+let nepMap: string | null = null;
+
+function nepStand(): TransportStand {
+  const nu = performance.now();
+  const bussen = Object.fromEntries([...nepBussen].map(([n, t]) => [n, (nu - t) / 1000]));
+  return {
+    ...STIL,
+    bezig: nepBussen.size > 0,
+    map: nepMap,
+    seconden: Math.max(0, ...Object.values(bussen)),
+    bussen,
+  };
+}
+
+function nepMeld() {
+  nepTransportVolger?.(nepStand());
+}
+
+function nepNeemOp(bussen: BusOpname[]) {
+  const nieuw = bussen.filter((b) => !nepBussen.has(b.naam));
+  if (!nieuw.length) return;
+  const t = performance.now();
+  for (const b of nieuw) nepBussen.set(b.naam, t);
+  nepMap = `~/Recordings/2026-10-18_1043${nepMap ? `-${nepBussen.size}` : ""}`;
+  nepMeld();
+}
 
 export function volgTransport(bij: (t: TransportStand) => void): () => void {
   if (inTauri) {
@@ -126,15 +165,13 @@ export function volgTransport(bij: (t: TransportStand) => void): () => void {
     };
   }
   nepTransportVolger = bij;
-  const id = setInterval(() => {
-    if (nepTransport.bezig) nepTransport = { ...nepTransport, seconden: (performance.now() - nepStart) / 1000 };
-    bij(nepTransport);
-  }, 200);
+  const id = setInterval(() => bij(nepStand()), 200);
   return () => clearInterval(id);
 }
 
 export function zetTransport(opties: Opties) {
   if (inTauri) invoke("zet_transport", { opties });
+  else nepOpties = opties;
 }
 
 /** Hoeveel kanalen de Rec bus heeft, en de gain per kanaal (0 = mute). */
@@ -158,17 +195,29 @@ export function zetBus(kanalen: number, gain: number[]) {
   });
 }
 
+/** Record all: alle bussen met bronnen (en MIDI) samen, in één take. */
 export function startOpname() {
   if (inTauri) return void invoke("start_opname");
-  nepStart = performance.now();
-  nepTransport = { ...STIL, bezig: true, map: "~/Recordings/2026-10-18_1043" };
-  nepTransportVolger?.(nepTransport);
+  nepNeemOp(nepOpties?.bussen ?? []);
 }
 
+/** Alles stoppen. */
 export function stopOpname() {
   if (inTauri) return void invoke("stop_opname");
-  nepTransport = { ...nepTransport, bezig: false };
-  nepTransportVolger?.(nepTransport);
+  nepBussen.clear();
+  nepMeld();
+}
+
+/** Eén bus in een eigen take. */
+export function startBus(bus: BusOpname) {
+  if (inTauri) return void invoke("start_bus", { bus });
+  nepNeemOp([bus]);
+}
+
+export function stopBus(naam: string) {
+  if (inTauri) return void invoke("stop_bus", { naam });
+  nepBussen.delete(naam);
+  nepMeld();
 }
 
 let laatste: Graaf = LEEG;

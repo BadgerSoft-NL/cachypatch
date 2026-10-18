@@ -5,7 +5,7 @@ pub mod opname;
 
 use tauri::{Emitter, Manager, State};
 
-use graaf::{Graaf, Melding, Momentopname, Opdracht, Opties};
+use graaf::{BusOpname, Graaf, Melding, Momentopname, Opdracht, Opties};
 
 #[tauri::command]
 fn haal_graaf(g: State<Graaf>) -> Momentopname {
@@ -57,6 +57,16 @@ fn stop_opname(g: State<Graaf>) {
 }
 
 #[tauri::command]
+fn start_bus(g: State<Graaf>, bus: BusOpname) {
+    g.doe(Opdracht::StartBus(bus));
+}
+
+#[tauri::command]
+fn stop_bus(g: State<Graaf>, naam: String) {
+    g.doe(Opdracht::StopBus(naam));
+}
+
+#[tauri::command]
 fn zet_mute(g: State<Graaf>, knoop: u32, mute: bool) {
     g.doe(Opdracht::ZetMute { knoop, mute });
 }
@@ -98,6 +108,8 @@ pub fn run() {
             zet_bus,
             start_opname,
             stop_opname,
+            start_bus,
+            stop_bus,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

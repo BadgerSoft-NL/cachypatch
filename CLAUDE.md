@@ -37,17 +37,25 @@ Concept en ontwerp staan in Nokta (`CachyPatch.nokta`, notities **Concept** en
 - `src-tauri/src/opname.rs` — de Rec bus (`pecanpatch-opname`, een zichtbare
   `pw_filter`-node met `rec_1…rec_N` (`AUX0…`) en `midi_in`, `media.class`
   `Stream/Input/Audio`, `node.autoconnect=false`). Per kanaal een gain en een
-  piek (event `pieken`, onder het eigen node-id). Elke gewapende bus = één WAV
-  met zijn kanalen, uit één process-ronde dus sample-precies gelijk. De
-  schrijfdraad (`hound`, 32-bit float) en klok/MIDI-bestand (`midly`, type 1,
-  480 PPQ); MIDI per bronpoort uit de MIDI-meter, wat bij Start naar
-  `midi_in` gaat.
-- `src/bussen.ts` — de indeling van de Rec bus in bussen (paren, gekoppeld of
-  twee mono, zoals in CachyMix), en per bus fader, mute en R. Configuratie, in
-  `localStorage`; naar Rust gaan alleen het aantal kanalen en de gains.
-  Uitvoer in `~/Recordings/JJJJ-MM-DD_UUMM/`. Externe klok: pulsen tellen
-  (24 ppq) met interpolatie, tempo per tel, nieuw tempo-event bij > 0,5 %
-  verschil; lock als de pulsen < 20 % afwijken.
+  piek (event `pieken`, onder het eigen node-id). Opnemen gaat in **takes**,
+  elk met een eigen map en schrijfdraad, en er kunnen er meer tegelijk lopen.
+  Record all (`Opdracht::Start`) = één take met alle bussen met bronnen plus
+  MIDI, uit één process-ronde dus sample-precies gelijk. Een bus los
+  (`StartBus`) = een eigen take; `StopBus` sluit alleen zijn WAV, en de take
+  stopt met zijn laatste bus. Een bus die al opneemt, doet niet nog eens mee.
+  De schrijfdraad (`hound`, 32-bit float) en klok/MIDI-bestand (`midly`,
+  type 1, 480 PPQ); MIDI per bronpoort uit de MIDI-meter, alleen bij Record
+  all. Uitvoer in `~/Recordings/JJJJ-MM-DD_UUMM/` (met volgnummer). Externe
+  klok: pulsen tellen (24 ppq) met interpolatie, tempo per tel, nieuw
+  tempo-event bij > 0,5 % verschil; lock als de pulsen < 20 % afwijken.
+- `src/bussen.ts` — de indeling van de Rec bus: een rij bussen van 1 of 2
+  kanalen (`bussen: [2, 1, 1]`), met per bus fader en mute. Configuratie, in
+  `localStorage`; naar Rust gaan alleen het aantal kanalen en de gains. × op
+  een bus (`busWeg`) ontkoppelt wat erheen ging en schuift de bussen erna op:
+  hun routes worden eerst naar de nieuwe kanalen gelegd, dan pas gaan de
+  oude weg en de laatste kanalen. De stand verhuist mee. Een uitgang en een
+  rec-bus kies je los van elkaar; op elke bron gaat de groene knop naar de
+  uitgang en R (altijd zichtbaar, naast M) naar de bus.
 - Eigen nodes heten `pecanpatch-meter-…` en blijven met hun poorten en links
   buiten de momentopname. Bus en MIDI-meter herkennen zichzelf aan hun
   node-id (`pw_filter_get_node_id`), niet aan de naam: een voorbeeld naast de
@@ -83,7 +91,8 @@ Concept en ontwerp staan in Nokta (`CachyPatch.nokta`, notities **Concept** en
   (−60…0 dBFS, val 24 dB/s, piek 1 s), zodat React niet 25×/s hertekent.
 - `src/midi.ts`, `src/MidiMeter.tsx` — MIDI-activiteit met 150 ms nagloei; een
   bestemming toont de samengevoegde activiteit van wat erheen gaat.
-- `src/Transport.tsx` — de transportbalk in beide mixers; keuzes in
+- `src/Transport.tsx` — de transportbalk in beide mixers (tijd, map, wat Record
+  all start, klok); opnemen zelf zit bij de bussen. Keuzes in
   `localStorage` (de klokpoort niet: ids gelden één sessie).
 - `src/MidiMixer.tsx` — edit-mix per MIDI-poort; aan/uit = link leggen/weghalen.
   "Disconnect all" in plaats van "Back to auto".

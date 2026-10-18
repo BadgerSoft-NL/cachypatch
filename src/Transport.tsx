@@ -1,9 +1,10 @@
-// De transportbalk onder de kop, in beide mixers. Eén opname: start je hem in
-// de ene tab, dan loopt hij ook in de andere. Wat er meedoet zijn de bussen
-// waarop R aan staat: elke bus één WAV, en de MIDI-ingang één .mid.
+// De transportbalk onder de kop, in beide mixers: de lopende tijd, de map,
+// wat Record all start en de klok. Opnemen zelf doe je bij de bussen: ● per
+// bus, of Record all naast het busvak. Elke bus één WAV, de MIDI-ingang één
+// .mid (alleen met Record all).
 
 import { useEffect, useState } from "react";
-import { startOpname, stopOpname, type Graaf, type TransportStand } from "./api";
+import type { Graaf, TransportStand } from "./api";
 import type { KlokKeuze } from "./App";
 import { midiDing, poortLabel } from "./indeling";
 
@@ -22,7 +23,7 @@ export function Transport({
   stand: TransportStand;
   klok: KlokKeuze;
   zetKlok: (k: KlokKeuze) => void;
-  /** Namen van de gewapende audiobussen. */
+  /** De bussen die Record all start: waar een bron heen gaat. */
   gewapend: string[];
   midiGewapend: boolean;
   /** Namen van de MIDI-bronnen die nu naar de Rec bus gaan. */
@@ -43,21 +44,13 @@ export function Transport({
 
   return (
     <section className="transport" aria-label="Recording">
-      <button
-        className={`opneem${stand.bezig ? " bezig" : ""}`}
-        aria-pressed={stand.bezig}
-        onClick={() => (stand.bezig ? stopOpname() : startOpname())}
-      >
-        <span className="rondje" aria-hidden="true" />
-        {stand.bezig ? "Stop" : "Record"}
-      </button>
       <div className="tijd-vak">
         <span className={`tijd${stand.bezig ? " bezig" : ""}`}>{tijd}</span>
         <span className="map">{stand.map ?? "~/Recordings/"}</span>
       </div>
       {tab === "audio" && (
-        <div className="groep" role="group" aria-label="Armed buses">
-          <span className="label">Armed</span>
+        <div className="groep" role="group" aria-label="Rec all">
+          <span className="label">Rec all</span>
           <span className={gewapend.length ? "gewapend" : "zacht"}>{gewapend.join(", ") || "none"}</span>
           <span className="mono zacht">WAV · 32f · {rate}</span>
         </div>

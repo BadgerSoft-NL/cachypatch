@@ -2,14 +2,16 @@
 // bewerkt (klik ergens in de strip); in de rijen erboven zet een groene knop
 // per bron de route daarheen aan of uit. Andere routes blijven zoals ze zijn.
 //
-// De rec-bussen staan tussen de bestemmingen, met R om te wapenen, de
-// koppelknop (stereo of twee mono) zoals in CachyMix, en + / − om een paar
-// bij te maken of weg te halen. Hun fader en M werken op de bus zelf.
+// De rec-bussen staan in een eigen vak tussen de bestemmingen, met de
+// koppelknop (stereo of twee mono) zoals in CachyMix. Hun fader en M werken op
+// de bus zelf; ● neemt die ene bus op, × haalt hem weg. Rechts ernaast Record
+// all (alle bussen met bronnen samen, sample-precies gelijk) en + Bus. Een
+// uitgang en een rec-bus kies je los van elkaar: de groene knop op een bron
+// gaat naar de uitgang, R ernaast naar de bus.
 
 import { useRef, type ReactNode } from "react";
-import { zetVolume } from "./api";
+import { startBus, startOpname, stopBus, stopOpname, zetVolume, type TransportStand } from "./api";
 import {
-  busEraf,
   busErbij,
   standVan,
   wisselKoppeling,
@@ -30,19 +32,25 @@ import {
 export function Mixer({
   mixer,
   bewerkt,
+  bewerkteBus,
   kiesBewerkt,
   verborgen,
   verberg,
   naarPatchbay,
-  opnemen,
+  transport,
   busConfig,
   zetBusConfig,
+  busWeg,
 }: {
-  opnemen: boolean;
+  transport: TransportStand;
   busConfig: BusConfig;
   zetBusConfig: (f: (c: BusConfig) => BusConfig) => void;
+  /** Haalt de bus op deze plek weg, met zijn routes. */
+  busWeg: (plek: number) => void;
   mixer: MixerModel;
+  /** De gekozen uitgang (groene knoppen) en de gekozen rec-bus (R). */
   bewerkt: Strip | null;
+  bewerkteBus: Strip | null;
   kiesBewerkt: (sleutel: string) => void;
   verborgen: Set<string>;
   verberg: (sleutel: string) => void;
@@ -55,6 +63,7 @@ export function Mixer({
       s={s}
       mixer={mixer}
       bewerkt={bewerkt}
+      bewerkteBus={bewerkteBus}
       verberg={verberg}
       naarPatchbay={naarPatchbay}
     />
@@ -69,73 +78,90 @@ export function Mixer({
         {mixer.hardware.filter(zichtbaar).map(bron)}
       </Rij>
       <Rij titel="Destinations" leeg="No destinations." laatste>
-        {mixer.bestemmingen.filter(zichtbaar).flatMap((d, i, lijst) => {
-          const gekozen = bewerkt?.sleutel === d.sleutel;
-          const n = [...mixer.apps, ...mixer.hardware].filter(
-            (b) => mixer.route(b, d).stand.soort !== "uit",
-          ).length;
-          const def = d.bus;
-          const stand = def ? standVan(busConfig, def.sleutel) : null;
-          const neemtOp = opnemen && !!stand?.gewapend;
-          const bus = def &&
-            stand && {
-              stand,
-              zet: (w: Partial<BusStand>) =>
-                zetBusConfig((c) => ({
-                  ...c,
-                  stand: { ...c.stand, [def.sleutel]: { ...standVan(c, def.sleutel), ...w } },
-                })),
-              koppel: def.links
-                ? {
-                    gekoppeld: busConfig.paren[def.paar]?.gekoppeld ?? true,
-                    wissel: () => zetBusConfig((c) => wisselKoppeling(c, def.paar)),
-                  }
-                : undefined,
-            };
-          const kaart = (
-            <Kaart
-              key={d.sleutel}
-              s={d}
-              gekozen={gekozen}
-              verberg={verberg}
-              bestemming
-              opname={neemtOp}
-              bus={bus || undefined}
-              kies={() => kiesBewerkt(d.sleutel)}
-            >
-              <button
-                className={`kies${gekozen ? " aan" : ""}`}
-                aria-pressed={gekozen}
-                onClick={() => kiesBewerkt(d.sleutel)}
+        {(() => {
+          const kaart = (d: Strip) => {
+            const gekozen = (d.bus ? bewerkteBus : bewerkt)?.sleutel === d.sleutel;
+            const n = [...mixer.apps, ...mixer.hardware].filter(
+              (b) => mixer.route(b, d).stand.soort !== "uit",
+            ).length;
+            const def = d.bus;
+            const stand = def ? standVan(busConfig, def.sleutel) : null;
+            const neemtOp = !!def && def.bestand in transport.bussen;
+            const bus = def &&
+              stand && {
+                stand,
+                zet: (w: Partial<BusStand>) =>
+                  zetBusConfig((c) => ({
+                    ...c,
+                    stand: { ...c.stand, [def.sleutel]: { ...standVan(c, def.sleutel), ...w } },
+                  })),
+                koppel: def.koppel
+                  ? {
+                      gekoppeld: def.koppel === "splits",
+                      wissel: () => zetBusConfig((c) => wisselKoppeling(c, def.plek)),
+                    }
+                  : undefined,
+                neemtOp,
+                neemOp: () =>
+                  neemtOp ? stopBus(def.bestand) : startBus({ naam: def.bestand, kanalen: def.kanalen }),
+                weg: busConfig.bussen.length > 1 ? () => busWeg(def.plek) : undefined,
+              };
+            return (
+              <Kaart
+                key={d.sleutel}
+                s={d}
+                gekozen={gekozen}
+                verberg={verberg}
+                bestemming
+                opname={neemtOp}
+                bus={bus || undefined}
+                kies={() => kiesBewerkt(d.sleutel)}
               >
-                {gekozen ? "editing" : "edit"}
-              </button>
-              <div className={`regel${neemtOp ? " rood" : ""}`}>
-                {neemtOp ? "● rec · " : ""}
-                {n === 1 ? "1 source" : `${n} sources`}
-              </div>
-            </Kaart>
-          );
-          // Na de laatste bus: een paar bij of eraf.
-          const laatsteBus = def && !lijst.slice(i + 1).some((x) => x.bus);
-          if (!laatsteBus) return [kaart];
+                <button
+                  className={`kies${gekozen ? " aan" : ""}`}
+                  aria-pressed={gekozen}
+                  onClick={() => kiesBewerkt(d.sleutel)}
+                >
+                  {gekozen ? "editing" : "edit"}
+                </button>
+                <div className={`regel${neemtOp ? " rood" : ""}`}>
+                  {neemtOp ? "● rec · " : ""}
+                  {n === 1 ? "1 source" : `${n} sources`}
+                </div>
+              </Kaart>
+            );
+          };
+          // De rec-bussen in een eigen vak, met + / − erbij; de uitgangen
+          // ervoor en erna (hardware, dan apps die opnemen).
+          const lijst = mixer.bestemmingen.filter(zichtbaar);
+          const eerste = lijst.findIndex((d) => d.bus);
+          if (eerste < 0) return lijst.map(kaart);
           return [
-            kaart,
-            <div key="bus-erbij" className="bus-erbij">
-              <button className="knop" title="Add a Rec bus pair" onClick={() => zetBusConfig(busErbij)}>
-                + Bus
-              </button>
-              <button
-                className="knop"
-                title="Remove the last Rec bus pair"
-                disabled={busConfig.paren.length <= 1}
-                onClick={() => zetBusConfig(busEraf)}
-              >
-                − Bus
-              </button>
+            ...lijst.slice(0, eerste).filter((d) => !d.bus).map(kaart),
+            <div key="bussen" className="bus-vak" role="group" aria-label="Rec buses">
+              {lijst.filter((d) => d.bus).map(kaart)}
+              <div className="bus-erbij">
+                <button
+                  className={"knop rec-alles" + (transport.bezig ? " aan" : "")}
+                  aria-pressed={transport.bezig}
+                  title={
+                    transport.bezig
+                      ? "Stop every recording bus"
+                      : "Start every Rec bus with sources at once, sample-aligned"
+                  }
+                  onClick={() => (transport.bezig ? stopOpname() : startOpname())}
+                >
+                  <span className="rondje" aria-hidden="true" />
+                  {transport.bezig ? "Stop all" : "Rec all"}
+                </button>
+                <button className="knop" title="Add a stereo Rec bus" onClick={() => zetBusConfig(busErbij)}>
+                  + Bus
+                </button>
+              </div>
             </div>,
+            ...lijst.slice(eerste).filter((d) => !d.bus).map(kaart),
           ];
-        })}
+        })()}
       </Rij>
     </main>
   );
@@ -166,54 +192,81 @@ function BronStrip({
   s,
   mixer,
   bewerkt,
+  bewerkteBus,
   verberg,
   naarPatchbay,
 }: {
   s: Strip;
   mixer: MixerModel;
   bewerkt: Strip | null;
+  bewerkteBus: Strip | null;
   verberg: (sleutel: string) => void;
   naarPatchbay: () => void;
 }) {
-  if (!bewerkt) {
-    return <Kaart s={s} verberg={verberg} />;
-  }
-  const r = mixer.route(s, bewerkt);
   const elders = mixer.bestemmingen
-    .filter((d) => d.sleutel !== bewerkt.sleutel && mixer.route(s, d).stand.soort !== "uit")
+    .filter(
+      (d) =>
+        d.sleutel !== bewerkt?.sleutel &&
+        d.sleutel !== bewerkteBus?.sleutel &&
+        mixer.route(s, d).stand.soort !== "uit",
+    )
     .map((d) => d.naam);
 
-  let knop: ReactNode;
+  let knop: ReactNode = <div className="kies-leeg" />;
   let regel: ReactNode = elders.length ? `also → ${elders.join(", ")}` : "";
   let amber = false;
-  if (r.stand.soort === "aangepast") {
-    knop = (
-      <button className="kies aangepast" onClick={naarPatchbay} title="Custom patch — open in patchbay">
-        custom
-      </button>
-    );
-    regel = r.stand.uitleg;
-    amber = true;
-  } else {
-    const aan = r.stand.soort === "aan";
-    knop = (
-      <button
-        className={`kies${aan ? " aan" : ""}`}
-        aria-pressed={aan}
-        title={`${aan ? "Remove" : "Add"} route to ${bewerkt.naam}`}
-        onClick={() => schakelRoute(s.sleutel, bewerkt.sleutel, aan)}
-      >
-        {bewerkt.naam}
-      </button>
-    );
-    if (r.stand.soort === "aan" && r.stand.handmatig) {
-      regel = "manual";
+  if (bewerkt) {
+    const r = mixer.route(s, bewerkt);
+    if (r.stand.soort === "aangepast") {
+      knop = (
+        <button className="kies aangepast" onClick={naarPatchbay} title="Custom patch — open in patchbay">
+          custom
+        </button>
+      );
+      regel = r.stand.uitleg;
       amber = true;
+    } else {
+      const aan = r.stand.soort === "aan";
+      knop = (
+        <button
+          className={`kies${aan ? " aan" : ""}`}
+          aria-pressed={aan}
+          title={`${aan ? "Remove" : "Add"} route to ${bewerkt.naam}`}
+          onClick={() => schakelRoute(s.sleutel, bewerkt.sleutel, aan)}
+        >
+          {bewerkt.naam}
+        </button>
+      );
+      if (r.stand.soort === "aan" && r.stand.handmatig) {
+        regel = "manual";
+        amber = true;
+      }
     }
   }
 
+  // R, altijd naast M: de route naar de gekozen rec-bus. Gaat de bron naar
+  // een andere rec-bus, dan is R gedimd rood.
+  let rec: RecKnop | undefined;
+  if (bewerkteBus) {
+    const r = mixer.route(s, bewerkteBus);
+    const aan = r.stand.soort === "aan";
+    const andere = mixer.bestemmingen
+      .filter((d) => d.bus && d.sleutel !== bewerkteBus.sleutel && mixer.route(s, d).stand.soort !== "uit")
+      .map((d) => d.naam);
+    const ook = andere.length ? ` (also recorded on ${andere.join(", ")})` : "";
+    rec =
+      r.stand.soort === "aangepast"
+        ? { aan: false, aangepast: true, titel: `Custom patch to ${bewerkteBus.naam} — open in patchbay`, klik: naarPatchbay }
+        : {
+            aan,
+            elders: andere.length > 0,
+            titel: `${aan ? "Stop recording" : "Record"} on ${bewerkteBus.naam}${ook}`,
+            klik: () => schakelRoute(s.sleutel, bewerkteBus.sleutel, aan),
+          };
+  }
+
   return (
-    <Kaart s={s} verberg={verberg}>
+    <Kaart s={s} verberg={verberg} rec={rec}>
       {knop}
       <div className={`regel${amber ? " amber" : ""}`} title={typeof regel === "string" ? regel : undefined}>
         {regel}
@@ -226,6 +279,16 @@ function BronStrip({
 // niet los gemute worden in PipeWire, dus dat gaat via het volume.
 const voorMute = new Map<string, number>();
 
+/** R op een bron: de route naar de bewerkte rec-bus. */
+interface RecKnop {
+  aan: boolean;
+  aangepast?: boolean;
+  /** De bron gaat naar een andere rec-bus. */
+  elders?: boolean;
+  titel: string;
+  klik: () => void;
+}
+
 function Kaart({
   s,
   gekozen,
@@ -234,14 +297,20 @@ function Kaart({
   opname,
   kies,
   bus,
+  rec,
   children,
 }: {
   opname?: boolean;
-  /** Een rec-bus: fader en M gaan over de bus, met R en de koppelknop erbij. */
+  rec?: RecKnop;
+  /** Een rec-bus: fader en M gaan over de bus, met de koppelknop erbij. */
   bus?: {
     stand: BusStand;
     zet: (w: Partial<BusStand>) => void;
     koppel?: { gekoppeld: boolean; wissel: () => void };
+    neemtOp: boolean;
+    neemOp: () => void;
+    /** Weghalen; ontbreekt bij de enige bus. */
+    weg?: () => void;
   };
   /** Een bestemming: klik ergens in de strip om hem te bewerken, zoals in CachyMix. */
   kies?: () => void;
@@ -299,6 +368,7 @@ function Kaart({
         (bestemming ? " strip-uit" : s.kanalen.length > 1 ? " strip-stereo" : "") +
         (gekozen ? " gekozen" : "") +
         (opname ? " opname" : "") +
+        (bus ? " strip-bus" : "") +
         (kies ? " kiesbaar" : "") +
         (s.stil || gemute ? " strip-stil" : "")
       }
@@ -306,12 +376,28 @@ function Kaart({
       <div className="strip-kop" title={`${s.naam} — ${s.onder}`}>
         <div className="naam">{s.naam}</div>
         <div className="strip-onder">{s.onder}</div>
-        <button className="verberg" aria-label={`Hide ${s.naam}`} title="Hide" onClick={(e) => {
-            e.stopPropagation();
-            verberg(s.sleutel);
-          }}>
-          ×
-        </button>
+        {bus ? (
+          bus.weg && (
+            <button
+              className="verberg"
+              aria-label={`Remove ${s.naam}`}
+              title="Remove this Rec bus; the buses after it move up"
+              onClick={(e) => {
+                e.stopPropagation();
+                bus.weg!();
+              }}
+            >
+              ×
+            </button>
+          )
+        ) : (
+          <button className="verberg" aria-label={`Hide ${s.naam}`} title="Hide" onClick={(e) => {
+              e.stopPropagation();
+              verberg(s.sleutel);
+            }}>
+            ×
+          </button>
+        )}
       </div>
       {children ?? <div className="kies-leeg" />}
       <div className="strip-midden">
@@ -333,17 +419,30 @@ function Kaart({
         >
           M
         </button>
-        {bus && (
+        {rec && (
           <button
-            className={"knop knop-rec" + (bus.stand.gewapend ? " aan" : "")}
-            aria-pressed={bus.stand.gewapend}
-            title={bus.stand.gewapend ? "Armed: recorded on Record" : "Arm for recording"}
-            onClick={(e) => {
-              e.stopPropagation();
-              bus.zet({ gewapend: !bus.stand.gewapend });
-            }}
+            className={
+              "knop knop-rec" + (rec.aan ? " aan" : rec.elders ? " elders" : "") + (rec.aangepast ? " aangepast" : "")
+            }
+            aria-pressed={rec.aan}
+            title={rec.titel}
+            onClick={rec.klik}
           >
             R
+          </button>
+        )}
+        {bus && (
+          <button
+            className={"knop knop-opneem" + (bus.neemtOp ? " aan" : "")}
+            aria-pressed={bus.neemtOp}
+            aria-label={`${bus.neemtOp ? "Stop" : "Record"} ${s.naam}`}
+            title={bus.neemtOp ? `Stop recording ${s.naam}` : `Record ${s.naam} on its own`}
+            onClick={(e) => {
+              e.stopPropagation();
+              bus.neemOp();
+            }}
+          >
+            <span className="rondje" aria-hidden="true" />
           </button>
         )}
         {bus?.koppel && (

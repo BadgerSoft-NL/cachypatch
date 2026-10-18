@@ -16,7 +16,7 @@ import { haalKabelsWeg, terugNaarAutoStap } from "./handelingen";
 import { deelIn } from "./indeling";
 import { Mixer } from "./Mixer";
 import { bouwMixer, telHandwerk, zetBusDefs } from "./mixer";
-import { bewaarBussen, bussen, leesBussen, standVan, stuurBussen, type BusConfig } from "./bussen";
+import { bewaarBussen, bussen, busWeg, leesBussen, stuurBussen, type BusConfig } from "./bussen";
 import { volgPieken } from "./meters";
 import { volgMidi } from "./midi";
 import { bouwMidiMixer, MidiMixer } from "./MidiMixer";
@@ -57,9 +57,19 @@ export default function App() {
   const [graaf, setGraaf] = useState<Graaf>(LEEG);
   const [tab, setTab] = useState<Tab>("audio");
   const [weergave, setWeergave] = useState<Weergave>("mixer");
+  // Per soort de laatst gekozen weergave, voor een klik op het label.
+  const [laatste, setLaatste] = useState<Record<Tab, Weergave>>({ audio: "mixer", midi: "mixer" });
+  const kiesWeergave = (t: Tab, w: Weergave) => {
+    setTab(t);
+    setWeergave(w);
+    setLaatste((l) => ({ ...l, [t]: w }));
+    setBevestig(false);
+    setToonVerborgen(false);
+  };
   // Versleepte plekken, per tab. Alleen voor deze sessie.
   const [plekken, setPlekken] = useState<Record<Tab, Plekken>>({ audio: {}, midi: {} });
   const [bewerktSleutel, setBewerktSleutel] = useState<string | null>(null);
+  const [busSleutel, setBusSleutel] = useState<string | null>(null);
   const [midiBewerktSleutel, setMidiBewerktSleutel] = useState<string | null>(null);
   const [verborgen, setVerborgen] = useState<Set<string>>(leesVerborgen);
   const [toonVerborgen, setToonVerborgen] = useState(false);
@@ -95,19 +105,10 @@ export default function App() {
     window.addEventListener("keydown", toets);
     return () => window.removeEventListener("keydown", toets);
   }, []);
-  // Wat de Rust-kant moet weten: de gewapende bussen, de klok, en het aantal
-  // kanalen en de gain van de Rec bus. Opnieuw na een herverbinding.
+  // Het aantal kanalen en de gain van de Rec bus. Opnieuw na een herverbinding.
   useEffect(() => {
-    if (!graaf.verbonden) return;
-    stuurBussen(busConfig);
-    zetTransport({
-      bussen: busDefs
-        .filter((b) => standVan(busConfig, b.sleutel).gewapend)
-        .map((b) => ({ naam: b.bestand, kanalen: b.kanalen })),
-      midi: busConfig.midi,
-      ...klok,
-    });
-  }, [busConfig, busDefs, klok, graaf.verbonden]);
+    if (graaf.verbonden) stuurBussen(busConfig);
+  }, [busConfig, graaf.verbonden]);
   useEffect(() => bewaarBussen(busConfig), [busConfig]);
   useEffect(() => {
     try {
@@ -129,18 +130,44 @@ export default function App() {
     zetBusDefs(busDefs);
     return bouwMixer(graaf);
   }, [graaf, busDefs]);
+  // De bussen die opnemen: waar een bron heen gaat (R op de bron).
+  const bezet = busDefs.filter((b) => {
+    const d = mixer.bestemmingen.find((x) => x.bus?.sleutel === b.sleutel);
+    return !!d && [...mixer.apps, ...mixer.hardware].some((s) => mixer.route(s, d).stand.soort !== "uit");
+  });
+  const bezetSleutel = bezet.map((b) => b.sleutel).join(" ");
+  // Wat de Rust-kant moet weten: die bussen, de MIDI-ingang en de klok.
+  // Opnieuw na een herverbinding.
+  useEffect(() => {
+    if (!graaf.verbonden) return;
+    zetTransport({
+      bussen: bezet.map((b) => ({ naam: b.bestand, kanalen: b.kanalen })),
+      midi: busConfig.midi,
+      ...klok,
+    });
+  }, [bezetSleutel, busConfig.midi, klok, graaf.verbonden]);
   const midiMixer = useMemo(() => bouwMidiMixer(graaf), [graaf]);
   const midiBewerkt =
     midiMixer.bestemmingen.find((d) => d.sleutel === midiBewerktSleutel) ??
     midiMixer.bestemmingen[0] ??
     null;
 
-  // De bewerkte bestemming: wat je koos, anders de standaard-uitgang.
+  // Twee keuzes naast elkaar: de bewerkte uitgang (de groene knoppen) en de
+  // bewerkte rec-bus (R). Zonder keuze de standaard-uitgang en de eerste bus.
+  const uitgangen = mixer.bestemmingen.filter((d) => !d.bus);
   const bewerkt =
-    mixer.bestemmingen.find((d) => d.sleutel === bewerktSleutel) ??
-    mixer.bestemmingen.find((d) => d.knoop.naam === graaf.standaard_sink && d.doelbaar) ??
-    mixer.bestemmingen[0] ??
+    uitgangen.find((d) => d.sleutel === bewerktSleutel) ??
+    uitgangen.find((d) => d.knoop.naam === graaf.standaard_sink && d.doelbaar) ??
+    uitgangen[0] ??
     null;
+  const bewerkteBus =
+    mixer.bestemmingen.find((d) => d.bus && d.sleutel === busSleutel) ??
+    mixer.bestemmingen.find((d) => d.bus) ??
+    null;
+  const kiesBewerkt = (sleutel: string) => {
+    if (mixer.bestemmingen.find((d) => d.sleutel === sleutel)?.bus) setBusSleutel(sleutel);
+    else setBewerktSleutel(sleutel);
+  };
   const handwerk = telHandwerk(mixer);
   const alleStrips =
     tab === "audio"
@@ -184,17 +211,18 @@ export default function App() {
         <nav className="weergaven" aria-label="View">
           {(["audio", "midi"] as const).map((t) => (
             <div key={t} className={`keuze ${t}`} role="group" aria-label={t === "audio" ? "Audio" : "MIDI"}>
-              <span className="keuze-label">{t === "audio" ? "Audio" : "MIDI"}</span>
+              <button
+                className="keuze-label"
+                title={`${t === "audio" ? "Audio" : "MIDI"} ${laatste[t]}`}
+                onClick={() => kiesWeergave(t, laatste[t])}
+              >
+                {t === "audio" ? "Audio" : "MIDI"}
+              </button>
               {(["mixer", "patchbay"] as const).map((w) => (
                 <button
                   key={w}
                   aria-pressed={tab === t && weergave === w}
-                  onClick={() => {
-                    setTab(t);
-                    setWeergave(w);
-                    setBevestig(false);
-                    setToonVerborgen(false);
-                  }}
+                  onClick={() => kiesWeergave(t, w)}
                 >
                   {w === "mixer" ? "Mixer" : "Patchbay"}
                 </button>
@@ -315,7 +343,7 @@ export default function App() {
           stand={transport}
           klok={klok}
           zetKlok={setKlok}
-          gewapend={busDefs.filter((b) => standVan(busConfig, b.sleutel).gewapend).map((b) => b.naam)}
+          gewapend={bezet.map((b) => b.naam)}
           midiGewapend={busConfig.midi}
           midiNaarBus={midiNaarBus}
         />
@@ -351,13 +379,15 @@ export default function App() {
         <Mixer
           mixer={mixer}
           bewerkt={bewerkt}
-          kiesBewerkt={setBewerktSleutel}
+          bewerkteBus={bewerkteBus}
+          kiesBewerkt={kiesBewerkt}
           verborgen={verborgen}
           verberg={verberg}
           naarPatchbay={() => setWeergave("patchbay")}
-          opnemen={transport.bezig}
+          transport={transport}
           busConfig={busConfig}
           zetBusConfig={setBusConfig}
+          busWeg={(plek) => setBusConfig(busWeg(busConfig, plek, graaf))}
         />
       ) : (
         <MidiMixer

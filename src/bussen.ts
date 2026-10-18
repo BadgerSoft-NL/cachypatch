@@ -1,25 +1,23 @@
 // De rec-bussen: hoe de kanalen van de Rec bus in bussen zijn ingedeeld, en
-// per bus de fader, mute en of hij gewapend is. Zoals de uitgangen in
-// CachyMix: per paar kanalen een stereobus, of gesplitst in twee mono's.
+// per bus de fader en mute. Zoals de uitgangen in CachyMix: een stereobus,
+// of gesplitst in twee mono's. Elke bus neemt los op; Record all start alle
+// bussen met bronnen samen.
 //
 // Dit is configuratie, geen routing: het mag bewaard blijven. De Rust-kant
 // krijgt het aantal kanalen en de gain per kanaal; wat er naar een bus gaat,
 // staat gewoon in de graph.
 
-import { zetBus } from "./api";
-
-export interface Paar {
-  gekoppeld: boolean;
-}
+import { isBus, ontkoppel, verbind, zetBus, type Graaf } from "./api";
 
 export interface BusStand {
   db: number;
   mute: boolean;
-  gewapend: boolean;
 }
 
 export interface BusConfig {
-  paren: Paar[];
+  /** Per bus het aantal kanalen (2 = stereo, 1 = mono), op volgorde over de
+   *  kanalen van de Rec bus. */
+  bussen: number[];
   stand: Record<string, BusStand>;
   /** De MIDI-ingang van de bus is gewapend. */
   midi: boolean;
@@ -28,27 +26,34 @@ export interface BusConfig {
 export interface BusDef {
   sleutel: string;
   naam: string;
-  /** Voor de bestandsnaam: "Rec 1-2". */
+  /** Voor de bestandsnaam, en zo kent de Rust-kant hem: "Rec 1-2". */
   bestand: string;
   /** Kanaalnummers op de Rec bus, vanaf 0. */
   kanalen: number[];
-  /** Het paar waar hij bij hoort, en of hij de linker (of enige) is. */
-  paar: number;
-  links: boolean;
+  /** Plek in `BusConfig.bussen`. */
+  plek: number;
+  /** Wat de koppelknop doet: een stereobus splitsen, of deze mono met de
+   *  volgende koppelen. Geen = geen knop. */
+  koppel?: "splits" | "koppel";
 }
 
 export const UIT_DB = -90;
 const OPSLAG = "pecanpatch.bussen";
 const BEGIN: BusConfig = {
-  paren: [{ gekoppeld: true }],
-  stand: { "rec-1-2": { db: 0, mute: false, gewapend: true } },
+  bussen: [2],
+  stand: {},
   midi: true,
 };
 
 export function leesBussen(): BusConfig {
   try {
     const c = JSON.parse(localStorage.getItem(OPSLAG) ?? "null");
-    if (c && Array.isArray(c.paren) && c.paren.length) return { ...BEGIN, ...c };
+    if (c && Array.isArray(c.bussen) && c.bussen.length) return { ...BEGIN, ...c };
+    // Van voor de losse bussen: paren, gekoppeld of niet.
+    if (c && Array.isArray(c.paren) && c.paren.length) {
+      const bussen = c.paren.flatMap((p: { gekoppeld: boolean }) => (p.gekoppeld ? [2] : [1, 1]));
+      return { ...BEGIN, stand: c.stand ?? {}, midi: c.midi ?? true, bussen };
+    }
   } catch {
     // Geen opslag: de beginstand.
   }
@@ -64,48 +69,106 @@ export function bewaarBussen(c: BusConfig) {
 }
 
 export function bussen(c: BusConfig): BusDef[] {
-  return c.paren.flatMap((p, i): BusDef[] => {
-    const a = 2 * i + 1;
-    const b = a + 1;
-    if (p.gekoppeld)
-      return [{ sleutel: `rec-${a}-${b}`, naam: `Rec ${a}/${b}`, bestand: `Rec ${a}-${b}`, kanalen: [a - 1, b - 1], paar: i, links: true }];
-    return [
-      { sleutel: `rec-${a}`, naam: `Rec ${a}`, bestand: `Rec ${a}`, kanalen: [a - 1], paar: i, links: true },
-      { sleutel: `rec-${b}`, naam: `Rec ${b}`, bestand: `Rec ${b}`, kanalen: [b - 1], paar: i, links: false },
-    ];
+  const uit: BusDef[] = [];
+  let k = 0;
+  c.bussen.forEach((breed, plek) => {
+    const a = k + 1;
+    if (breed === 2) {
+      uit.push({ sleutel: `rec-${a}-${a + 1}`, naam: `Rec ${a}/${a + 1}`, bestand: `Rec ${a}-${a + 1}`, kanalen: [k, k + 1], plek, koppel: "splits" });
+    } else {
+      // Twee mono's naast elkaar kun je koppelen; telkens de linker van een
+      // paar, zodat drie mono's niet twee knoppen voor de middelste geven.
+      const vorige = uit[uit.length - 1];
+      const isRechter = vorige?.koppel === "koppel";
+      const koppel = !isRechter && c.bussen[plek + 1] === 1 ? "koppel" : undefined;
+      uit.push({ sleutel: `rec-${a}`, naam: `Rec ${a}`, bestand: `Rec ${a}`, kanalen: [k], plek, koppel });
+    }
+    k += breed;
   });
+  return uit;
 }
 
 export function standVan(c: BusConfig, sleutel: string): BusStand {
-  return c.stand[sleutel] ?? { db: 0, mute: false, gewapend: false };
+  return c.stand[sleutel] ?? { db: 0, mute: false };
+}
+
+function kanaalTal(c: BusConfig): number {
+  return c.bussen.reduce((a, b) => a + b, 0);
 }
 
 /** Stuurt het aantal kanalen en de gain per kanaal naar de Rec bus. */
 export function stuurBussen(c: BusConfig) {
-  const gain = Array(c.paren.length * 2).fill(1);
+  const gain = Array(kanaalTal(c)).fill(1);
   for (const b of bussen(c)) {
     const s = standVan(c, b.sleutel);
     const g = s.mute || s.db <= UIT_DB ? 0 : Math.pow(10, s.db / 20);
     for (const k of b.kanalen) gain[k] = g;
   }
-  zetBus(c.paren.length * 2, gain);
+  zetBus(kanaalTal(c), gain);
 }
 
-/** Een paar koppelen of splitsen; de stand gaat mee naar de nieuwe bus(sen). */
-export function wisselKoppeling(c: BusConfig, paar: number): BusConfig {
-  const oud = bussen(c).filter((b) => b.paar === paar);
-  const paren = c.paren.map((p, i) => (i === paar ? { gekoppeld: !p.gekoppeld } : p));
-  const nieuw = bussen({ ...c, paren }).filter((b) => b.paar === paar);
-  const stand = { ...c.stand };
-  const eerste = standVan(c, oud[0].sleutel);
-  for (const b of nieuw) stand[b.sleutel] = stand[b.sleutel] ?? eerste;
-  return { ...c, paren, stand };
+/** Nieuwe indeling; de stand (fader, mute) gaat mee met zijn bus. `van`
+ *  zegt per nieuwe plek van welke oude bus hij de stand krijgt. */
+function herindeel(c: BusConfig, nieuw: number[], van: (plek: number) => number | undefined): BusConfig {
+  const oud = bussen(c);
+  const volgend = { ...c, bussen: nieuw };
+  const stand: Record<string, BusStand> = {};
+  for (const b of bussen(volgend)) {
+    const o = van(b.plek);
+    const s = o === undefined ? undefined : c.stand[oud.find((x) => x.plek === o)?.sleutel ?? ""];
+    if (s) stand[b.sleutel] = s;
+  }
+  return { ...volgend, stand };
+}
+
+/** Een stereobus splitsen, of een mono met de volgende koppelen. */
+export function wisselKoppeling(c: BusConfig, plek: number): BusConfig {
+  const n = c.bussen;
+  if (n[plek] === 2) {
+    const nieuw = [...n.slice(0, plek), 1, 1, ...n.slice(plek + 1)];
+    return herindeel(c, nieuw, (p) => (p <= plek ? p : p === plek + 1 ? plek : p - 1));
+  }
+  if (n[plek] === 1 && n[plek + 1] === 1) {
+    const nieuw = [...n.slice(0, plek), 2, ...n.slice(plek + 2)];
+    return herindeel(c, nieuw, (p) => (p <= plek ? p : p + 1));
+  }
+  return c;
 }
 
 export function busErbij(c: BusConfig): BusConfig {
-  return { ...c, paren: [...c.paren, { gekoppeld: true }] };
+  return { ...c, bussen: [...c.bussen, 2] };
 }
 
-export function busEraf(c: BusConfig): BusConfig {
-  return c.paren.length > 1 ? { ...c, paren: c.paren.slice(0, -1) } : c;
+/**
+ * Haalt een bus weg. Wat erheen ging, wordt ontkoppeld; de bussen erna
+ * schuiven op (Rec 5/6 wordt Rec 3/4), en hun routes schuiven mee naar de
+ * nieuwe kanalen. Eerst de nieuwe links, dan de oude weg, dan pas minder
+ * kanalen: zo hangt een bron nooit even nergens aan.
+ */
+export function busWeg(c: BusConfig, plek: number, g: Graaf): BusConfig {
+  if (c.bussen.length <= 1) return c;
+  const breed = c.bussen[plek];
+  const eerste = bussen(c).find((b) => b.plek === plek)?.kanalen[0];
+  const knoop = g.knopen.find(isBus);
+  if (eerste !== undefined && knoop) {
+    const poorten = g.poorten.filter((p) => p.knoop === knoop.id && p.ingang);
+    const kanaal = (id: number) => {
+      const m = /^rec_(\d+)$/.exec(poorten.find((p) => p.id === id)?.naam ?? "");
+      return m ? Number(m[1]) - 1 : null;
+    };
+    const naar = (k: number) => poorten.find((p) => p.naam === `rec_${k + 1}`);
+    const weg: number[] = [];
+    for (const kabel of g.kabels.filter((k) => k.in_knoop === knoop.id)) {
+      const k = kanaal(kabel.in_poort);
+      if (k === null || k < eerste) continue;
+      weg.push(kabel.id);
+      if (k >= eerste + breed) {
+        const doel = naar(k - breed);
+        if (doel) verbind(kabel.uit_poort, doel.id);
+      }
+    }
+    ontkoppel(weg);
+  }
+  const nieuw = c.bussen.filter((_, i) => i !== plek);
+  return herindeel(c, nieuw, (p) => (p < plek ? p : p + 1));
 }

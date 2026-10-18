@@ -159,17 +159,18 @@ pub enum Melding<'a> {
     Transport(&'a TransportStand),
 }
 
-/// Eén gewapende bus: een WAV met deze kanalen van de Rec bus.
+/// Eén bus: een WAV met deze kanalen van de Rec bus. De naam is ook de
+/// bestandsnaam, en zo stop je hem weer.
 #[derive(Clone, Debug, serde::Deserialize)]
 pub struct BusOpname {
     pub naam: String,
     pub kanalen: Vec<usize>,
 }
 
-/// Wat de opname moet doen als hij start.
+/// Wat Record all doet, en de klok.
 #[derive(Clone, Debug, serde::Deserialize)]
 pub struct Opties {
-    /// De gewapende audiobussen.
+    /// De bussen waar een bron heen gaat.
     pub bussen: Vec<BusOpname>,
     /// De MIDI-ingang van de bus is gewapend.
     pub midi: bool,
@@ -182,9 +183,12 @@ pub struct Opties {
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct TransportStand {
     pub bezig: bool,
-    /// De map van de lopende (of laatste) opname.
+    /// De map van de laatst gestarte take.
     pub map: Option<String>,
+    /// Hoe lang de oudste lopende take al loopt.
     pub seconden: f64,
+    /// Per bus die opneemt: hoe lang al.
+    pub bussen: BTreeMap<String, f64>,
     pub klok: KlokStand,
     /// Wat er misging bij de laatste opname.
     pub fout: Option<String>,
@@ -212,8 +216,13 @@ pub enum Opdracht {
     ZetTransport(Opties),
     /// Hoeveel kanalen de Rec bus heeft, en hun gain (lineair, 0 = mute).
     ZetBus { kanalen: usize, gain: Vec<f32> },
+    /// Record all: de bussen en MIDI uit de opties, samen in één take.
     Start,
+    /// Eén bus in een eigen take.
+    StartBus(BusOpname),
+    /// Alles stoppen.
     Stop,
+    StopBus(String),
 }
 
 /// De levende spiegel. Leeft zo lang als de app; de draad stopt niet.
@@ -753,8 +762,17 @@ fn sessie(
                 &mut transport.borrow_mut(),
                 &opnemer,
                 bus.as_ref().as_ref().and_then(Bus::knoop_id),
+                None,
             ),
-            Opdracht::Stop => eindig(&mut transport.borrow_mut(), &opnemer, &klok.borrow()),
+            Opdracht::StartBus(b) => begin(
+                &staat.borrow(),
+                &mut transport.borrow_mut(),
+                &opnemer,
+                bus.as_ref().as_ref().and_then(Bus::knoop_id),
+                Some(b),
+            ),
+            Opdracht::Stop => eindig(&opnemer, &klok.borrow()),
+            Opdracht::StopBus(naam) => eindig_bus(&opnemer, &klok.borrow(), &naam),
             o => uitvoeren(o, &core, &registry, &bindingen.borrow(), &gelegd),
         }
     });
@@ -778,28 +796,33 @@ fn sessie(
             // Start of Stop van de externe klok.
             let verzoek = klok.borrow_mut().verzoek.take();
             match verzoek {
-                Some(true) if opnemer.borrow().is_none() => begin(
+                Some(true) if opnemer.borrow().is_empty() => begin(
                     &staat.borrow(),
                     &mut transport.borrow_mut(),
                     &opnemer,
                     bus.as_ref().as_ref().and_then(Bus::knoop_id),
+                    None,
                 ),
-                Some(false) if opnemer.borrow().is_some() => {
-                    eindig(&mut transport.borrow_mut(), &opnemer, &klok.borrow())
-                }
+                Some(false) if !opnemer.borrow().is_empty() => eindig(&opnemer, &klok.borrow()),
                 _ => {}
             }
             tikken.set(tikken.get().wrapping_add(1));
             if tikken.get().is_multiple_of(5) {
                 let mut t = transport.borrow_mut();
                 t.ruim_op();
+                let takes = opnemer.borrow();
                 let stand = TransportStand {
-                    bezig: opnemer.borrow().is_some(),
+                    bezig: !takes.is_empty(),
                     map: t.map.as_ref().map(|m| m.display().to_string()),
-                    seconden: opnemer.borrow().as_ref().map_or(0.0, |a| a.t0.elapsed().as_secs_f64()),
+                    seconden: takes.iter().map(|a| a.t0.elapsed().as_secs_f64()).fold(0.0, f64::max),
+                    bussen: takes
+                        .iter()
+                        .flat_map(|a| a.bussen.iter().map(|b| (b.2.clone(), a.t0.elapsed().as_secs_f64())))
+                        .collect(),
                     klok: klok.borrow().stand(),
                     fout: t.fout.clone(),
                 };
+                drop(takes);
                 meld_overig(Melding::Transport(&stand));
             }
             if let Some(mm) = midi.borrow_mut().as_mut() {
@@ -852,8 +875,8 @@ fn sessie(
 
     mainloop.run();
     drop(timer);
-    // Een opname die nog liep, netjes afsluiten.
-    eindig(&mut transport.borrow_mut(), &opnemer, &klok.borrow());
+    // Wat nog opnam, netjes afsluiten.
+    eindig(&opnemer, &klok.borrow());
     meters.borrow_mut().clear();
     midi.borrow_mut().take();
     (Ok(()), ontvanger.deattach())
@@ -865,65 +888,74 @@ struct Transport {
     opties: Option<Opties>,
     map: Option<std::path::PathBuf>,
     fout: Option<String>,
-    /// De schrijfdraad van de laatste opname, tot hij klaar is.
-    schrijver: Option<std::thread::JoinHandle<Result<(), String>>>,
-    /// Namen van de MIDI-sporen, voor het bestand.
-    midi_namen: Vec<String>,
+    /// De schrijfdraden, tot ze klaar zijn.
+    schrijvers: Vec<std::thread::JoinHandle<Result<(), String>>>,
 }
 
 impl Transport {
-    /// Een klaar schrijvertje oogsten, zodat een fout op het scherm komt.
+    /// Klare schrijvertjes oogsten, zodat een fout op het scherm komt.
     fn ruim_op(&mut self) {
-        if self.schrijver.as_ref().is_some_and(|d| d.is_finished()) {
-            if let Some(Err(e)) = self.schrijver.take().map(|d| d.join().unwrap_or(Err("writer panicked".into()))) {
+        let (klaar, bezig): (Vec<_>, Vec<_>) =
+            std::mem::take(&mut self.schrijvers).into_iter().partition(|d| d.is_finished());
+        self.schrijvers = bezig;
+        for d in klaar {
+            if let Err(e) = d.join().unwrap_or(Err("writer panicked".into())) {
                 self.fout = Some(e);
             }
         }
     }
 }
 
-/// Start een opname met wat er nu naar de Rec bus gerouteerd is.
-fn begin(s: &Staat, t: &mut Transport, opnemer: &Opnemer, bus: Option<u32>) {
-    if opnemer.borrow().is_some() {
-        return;
-    }
+/// Start een take in een nieuwe map. `None` = Record all: de bussen en MIDI
+/// uit de opties, samen. Anders alleen die ene bus. Een bus die al opneemt,
+/// doet niet nog eens mee.
+fn begin(s: &Staat, t: &mut Transport, opnemer: &Opnemer, bus: Option<u32>, een: Option<BusOpname>) {
     t.fout = None;
-    let opties = t.opties.clone().unwrap_or(Opties {
-        bussen: vec![BusOpname { naam: "Rec 1-2".into(), kanalen: vec![0, 1] }],
-        midi: true,
-        klok: None,
-        start_stop: false,
-    });
-    match plan(s, &opties, bus) {
-        Err(e) => t.fout = Some(e),
+    let alles = een.is_none();
+    let opties = t.opties.clone().unwrap_or(Opties { bussen: Vec::new(), midi: true, klok: None, start_stop: false });
+    let lopend: BTreeSet<String> =
+        opnemer.borrow().iter().flat_map(|a| a.bussen.iter().map(|b| b.2.clone())).collect();
+    let bussen: Vec<BusOpname> = een
+        .map_or(opties.bussen, |b| vec![b])
+        .into_iter()
+        .filter(|b| !b.kanalen.is_empty() && !lopend.contains(&b.naam))
+        .collect();
+    let midi = alles && opties.midi && !opnemer.borrow().iter().any(|a| !a.midi_namen.is_empty());
+    match plan(s, &bussen, midi, bus) {
+        Err(e) => {
+            // Alles loopt al: dan is er niets mis.
+            if lopend.is_empty() {
+                t.fout = Some(e);
+            }
+        }
         Ok((sporen, bussen, midi, midi_namen)) => {
             let map = opname::nieuwe_map();
             let rate = s.force_rate.or(s.rate).unwrap_or(48_000);
             match opname::schrijver(&map, sporen, rate) {
                 Err(e) => t.fout = Some(format!("{}: {e}", map.display())),
                 Ok((tx, draad)) => {
-                    *opnemer.borrow_mut() = Some(Actief {
+                    opnemer.borrow_mut().push(Actief {
                         tx,
                         t0: std::time::Instant::now(),
                         bussen,
                         midi,
+                        midi_namen,
                         midi_events: Vec::new(),
                         pulsen: Vec::new(),
                     });
                     t.map = Some(map);
-                    t.schrijver = Some(draad);
-                    t.midi_namen = midi_namen;
+                    t.schrijvers.push(draad);
                 }
             }
         }
     }
 }
 
-type Plan = (Vec<Spoor>, Vec<(usize, Vec<usize>)>, BTreeMap<u32, usize>, Vec<String>);
+type Plan = (Vec<Spoor>, Vec<(usize, Vec<usize>, String)>, BTreeMap<u32, usize>, Vec<String>);
 
-/// Welke sporen er komen: per gewapende bus een WAV, en per MIDI-bron die
+/// Welke sporen er komen: per bus een WAV, en als `midi` per MIDI-bron die
 /// naar de bus gaat een spoor in het MIDI-bestand.
-fn plan(s: &Staat, o: &Opties, bus: Option<u32>) -> Result<Plan, String> {
+fn plan(s: &Staat, bussen: &[BusOpname], midi: bool, bus: Option<u32>) -> Result<Plan, String> {
     let bus = s.knopen.get(&bus.ok_or("The Rec bus is not there")?).ok_or("The Rec bus is not there")?;
     let midi_in: BTreeSet<u32> = s
         .poorten
@@ -933,21 +965,18 @@ fn plan(s: &Staat, o: &Opties, bus: Option<u32>) -> Result<Plan, String> {
         .collect();
 
     let mut sporen = Vec::new();
-    let mut bussen = Vec::new();
-    for b in &o.bussen {
-        if b.kanalen.is_empty() {
-            continue;
-        }
-        bussen.push((sporen.len(), b.kanalen.clone()));
+    let mut lijst = Vec::new();
+    for b in bussen {
+        lijst.push((sporen.len(), b.kanalen.clone(), b.naam.clone()));
         sporen.push(Spoor { naam: b.naam.clone(), kanalen: b.kanalen.len() as u16 });
     }
 
     // MIDI: per bronpoort die naar de bus gaat.
-    let mut midi = BTreeMap::new();
+    let mut sporen_midi = BTreeMap::new();
     let mut midi_namen = Vec::new();
-    if o.midi {
+    if midi {
         for k in s.kabels.values().filter(|k| midi_in.contains(&k.in_poort)) {
-            if midi.contains_key(&k.uit_poort) {
+            if sporen_midi.contains_key(&k.uit_poort) {
                 continue;
             }
             let p = s.poorten.get(&k.uit_poort);
@@ -962,22 +991,45 @@ fn plan(s: &Staat, o: &Opties, bus: Option<u32>) -> Result<Plan, String> {
                 (_, Some(n)) => n.app.clone().or(n.beschrijving.clone()).unwrap_or(n.naam.clone()),
                 _ => format!("MIDI {}", k.uit_poort),
             };
-            midi.insert(k.uit_poort, midi_namen.len());
+            sporen_midi.insert(k.uit_poort, midi_namen.len());
             midi_namen.push(naam);
         }
     }
 
-    if sporen.is_empty() && midi.is_empty() {
-        return Err("Nothing armed: press R on a Rec bus".into());
+    if sporen.is_empty() && sporen_midi.is_empty() {
+        return Err("Nothing to record: route a source to a Rec bus".into());
     }
-    Ok((sporen, bussen, midi, midi_namen))
+    Ok((sporen, lijst, sporen_midi, midi_namen))
 }
 
-/// Stopt de opname: de schrijfdraad maakt de bestanden af.
-fn eindig(t: &mut Transport, opnemer: &Opnemer, klok: &Klok) {
-    let Some(a) = opnemer.borrow_mut().take() else { return };
-    let midi = (!t.midi_namen.is_empty()).then(|| MidiBestand {
-        namen: std::mem::take(&mut t.midi_namen),
+/// Stopt alle takes: de schrijfdraden maken de bestanden af.
+fn eindig(opnemer: &Opnemer, klok: &Klok) {
+    let takes = std::mem::take(&mut *opnemer.borrow_mut());
+    for a in takes {
+        sluit(a, klok);
+    }
+}
+
+/// Stopt één bus. Was hij de laatste van zijn take, dan stopt de take, en
+/// het MIDI-bestand van die take met hem.
+fn eindig_bus(opnemer: &Opnemer, klok: &Klok, naam: &str) {
+    let mut takes = opnemer.borrow_mut();
+    let Some(i) = takes.iter().position(|a| a.bussen.iter().any(|b| b.2 == naam)) else { return };
+    let a = &mut takes[i];
+    if let Some(j) = a.bussen.iter().position(|b| b.2 == naam) {
+        let (spoor, ..) = a.bussen.remove(j);
+        let _ = a.tx.send(Bericht::Sluit(spoor));
+    }
+    if a.bussen.is_empty() {
+        let a = takes.remove(i);
+        drop(takes);
+        sluit(a, klok);
+    }
+}
+
+fn sluit(a: Actief, klok: &Klok) {
+    let midi = (!a.midi_namen.is_empty()).then(|| MidiBestand {
+        namen: a.midi_namen,
         events: a.midi_events,
         pulsen: klok.bron.is_some().then_some(a.pulsen),
     });
@@ -1033,7 +1085,12 @@ fn uitvoeren(
             stuur_props(bindingen, knoop, eigenschap);
         }
         // Die handelt de ontvanger in `sessie` zelf af.
-        Opdracht::ZetTransport(_) | Opdracht::ZetBus { .. } | Opdracht::Start | Opdracht::Stop => {}
+        Opdracht::ZetTransport(_)
+        | Opdracht::ZetBus { .. }
+        | Opdracht::Start
+        | Opdracht::StartBus(_)
+        | Opdracht::Stop
+        | Opdracht::StopBus(_) => {}
     }
 }
 

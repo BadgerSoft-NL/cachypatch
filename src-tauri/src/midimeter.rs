@@ -262,7 +262,7 @@ unsafe extern "C" fn bij_process(data: *mut c_void, positie: *mut spa::sys::spa_
                                 match raw.first() {
                                     Some(0xf8) => {
                                         k.puls(t);
-                                        if let Some(a) = op.as_deref_mut().and_then(|o| o.as_mut()) {
+                                        for a in op.iter_mut().flat_map(|o| o.iter_mut()) {
                                             let s = a.sinds(t);
                                             a.pulsen.push(s);
                                         }
@@ -272,10 +272,10 @@ unsafe extern "C" fn bij_process(data: *mut c_void, positie: *mut spa::sys::spa_
                                     _ => {}
                                 }
                             }
-                            if let Some(a) = op.as_deref_mut().and_then(|o| o.as_mut()) {
+                            for a in op.iter_mut().flat_map(|o| o.iter_mut()) {
                                 if let Some(&spoor) = a.midi.get(&p.bron) {
                                     let s = a.sinds(t);
-                                    a.midi_events.push((spoor, s, raw));
+                                    a.midi_events.push((spoor, s, raw.clone()));
                                 }
                             }
                         });
