@@ -279,6 +279,19 @@ button:disabled {
   background: var(--rij);
 }
 
+/* Een rechtsklikmenu staat op de plek van de muis. */
+.menu.contextmenu {
+  position: fixed;
+  right: auto;
+  min-width: 180px;
+  z-index: 20;
+}
+
+.menu button:disabled {
+  color: var(--zachter);
+  background: transparent;
+}
+
 .bevestig {
   display: flex;
   flex-wrap: wrap;
@@ -315,20 +328,73 @@ button:disabled {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 0;
   padding: 4px;
   min-height: 0;
 }
 
 .rij {
-  flex: 1;
+  flex: 1 1 0;
   display: flex;
   min-height: 0;
   background: var(--rij);
   border-radius: 4px;
 }
 
+/* De kant van een rij: × om hem te verbergen, en de titel. */
+.rij-kant {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: none;
+  border-right: 1px solid #000;
+}
+
+.rij-kant .rij-titel {
+  flex: 1;
+  border-right: 0;
+}
+
+.rij-sluit {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--zachter);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.rij-sluit:hover {
+  background: var(--strip-rand);
+  color: var(--tekst);
+}
+
+/* Tussen twee rijen: slepen verdeelt de hoogte. Hij vult de ruimte die
+   anders de gap was. */
+.rij-greep {
+  flex: none;
+  height: 6px;
+  margin: -1px 0;
+  border-radius: 3px;
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.rij-greep:hover,
+.rij-greep.sleept {
+  background: var(--strip-rand);
+}
+
 /* De MIDI-rijen hebben geen fader die mee moet rekken. */
+.rijen.midi {
+  gap: 4px;
+}
+
 .rijen.midi .rij {
   flex: none;
 }

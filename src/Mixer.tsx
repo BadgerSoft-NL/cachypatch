@@ -9,7 +9,7 @@
 // uitgang en een rec-bus kies je los van elkaar: de groene knop op een bron
 // gaat naar de uitgang, R ernaast naar de bus.
 
-import { useRef, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { startBus, startOpname, stopBus, stopOpname, zetVolume, type TransportStand } from "./api";
 import {
   busErbij,
@@ -69,16 +69,29 @@ export function Mixer({
     />
   );
 
-  return (
-    <main className="rijen">
-      <Rij titel="Apps" leeg="No app is playing.">
-        {mixer.apps.filter(zichtbaar).map(bron)}
-      </Rij>
-      <Rij titel="Hardware in" leeg="No inputs.">
-        {mixer.hardware.filter(zichtbaar).map(bron)}
-      </Rij>
-      <Rij titel="Destinations" leeg="No destinations." laatste>
-        {(() => {
+  const [gewicht, zetGewicht] = useRijGewichten();
+  // Het rechtsklikmenu van de rijen, op de plek van de muis.
+  const [menu, setMenu] = useState<{ x: number; y: number; rij?: { id: RijId; titel: string } } | null>(null);
+  useEffect(() => {
+    if (!menu) return;
+    const dicht = () => setMenu(null);
+    const toets = (e: KeyboardEvent) => e.key === "Escape" && dicht();
+    window.addEventListener("pointerdown", dicht);
+    window.addEventListener("keydown", toets);
+    window.addEventListener("blur", dicht);
+    return () => {
+      window.removeEventListener("pointerdown", dicht);
+      window.removeEventListener("keydown", toets);
+      window.removeEventListener("blur", dicht);
+    };
+  }, [menu]);
+  const openMenu = (e: React.MouseEvent, rij?: { id: RijId; titel: string }) => {
+    // Op een strip of een knop: het gewone menu van de webview.
+    if ((e.target as Element).closest(".strip, .bus-erbij")) return;
+    e.preventDefault();
+    setMenu({ x: e.clientX, y: e.clientY, rij });
+  };
+  const bestemmingen = (() => {
           const kaart = (d: Strip) => {
             const gekozen = (d.bus ? bewerkteBus : bewerkt)?.sleutel === d.sleutel;
             const n = [...mixer.apps, ...mixer.hardware].filter(
@@ -161,26 +174,189 @@ export function Mixer({
             </div>,
             ...lijst.slice(eerste).filter((d) => !d.bus).map(kaart),
           ];
-        })()}
-      </Rij>
+        })();
+
+  const rijen: { id: RijId; titel: string; leeg: string; inhoud: ReactNode[] }[] = [
+    { id: "apps", titel: "Apps", leeg: "No app is playing.", inhoud: mixer.apps.filter(zichtbaar).map(bron) },
+    { id: "hardware", titel: "Hardware in", leeg: "No inputs.", inhoud: mixer.hardware.filter(zichtbaar).map(bron) },
+    { id: "bestemmingen", titel: "Destinations", leeg: "No destinations.", inhoud: bestemmingen },
+  ];
+  const zichtbareRijen = rijen.filter((r) => !verborgen.has(rijSleutel(r.id)));
+
+  return (
+    <main className="rijen">
+      {zichtbareRijen.map((r, i) => (
+        <Fragment key={r.id}>
+          {i > 0 && (
+            <Greep
+              boven={zichtbareRijen[i - 1].id}
+              onder={r.id}
+              gewicht={gewicht}
+              zet={zetGewicht}
+              menu={(e) => openMenu(e)}
+            />
+          )}
+          <Rij
+            titel={r.titel}
+            leeg={r.leeg}
+            gewicht={gewicht[r.id]}
+            sluit={() => verberg(rijSleutel(r.id))}
+            menu={(e) => openMenu(e, { id: r.id, titel: r.titel })}
+          >
+            {r.inhoud}
+          </Rij>
+        </Fragment>
+      ))}
+      {zichtbareRijen.length === 0 && <p className="zacht leeg-rij">All rows are hidden. Bring them back under Hidden.</p>}
+      {menu && (
+        <div
+          className="menu contextmenu"
+          role="menu"
+          style={{ left: menu.x, top: menu.y }}
+          // Een klik in het menu zelf sluit het niet vóór de knop hem krijgt.
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <button
+            role="menuitem"
+            disabled={zichtbareRijen.every((r) => gewicht[r.id] === gewicht[zichtbareRijen[0].id])}
+            onClick={() => {
+              zetGewicht(GELIJK);
+              setMenu(null);
+            }}
+          >
+            Equal row heights
+          </button>
+          {menu.rij && (
+            <button
+              role="menuitem"
+              onClick={() => {
+                verberg(rijSleutel(menu.rij!.id));
+                setMenu(null);
+              }}
+            >
+              Hide <strong>{menu.rij.titel}</strong> row
+            </button>
+          )}
+        </div>
+      )}
     </main>
+  );
+}
+
+export type RijId = "apps" | "hardware" | "bestemmingen";
+
+/** Een verborgen rij staat in dezelfde lijst als verborgen strips. */
+export function rijSleutel(id: RijId): string {
+  return `rij|${id}`;
+}
+
+// Hoe hoog de rijen zijn, als verhouding (flex-grow). Een voorkeur van de
+// weergave, dus die mag blijven.
+const HOOGTES = "pecanpatch.rijen";
+const GELIJK: Record<RijId, number> = { apps: 1, hardware: 1, bestemmingen: 1 };
+/** Zo laag mag een rij worden bij het slepen, in pixels. */
+const MIN_HOOGTE = 110;
+
+function useRijGewichten(): [Record<RijId, number>, (g: Record<RijId, number>) => void] {
+  const [gewicht, zet] = useState<Record<RijId, number>>(() => {
+    try {
+      return { ...GELIJK, ...JSON.parse(localStorage.getItem(HOOGTES) ?? "{}") };
+    } catch {
+      return GELIJK;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(HOOGTES, JSON.stringify(gewicht));
+    } catch {
+      // Dan zijn ze na een herstart weer gelijk.
+    }
+  }, [gewicht]);
+  return [gewicht, zet];
+}
+
+/** De greep tussen twee rijen: slepen verdeelt hun hoogte opnieuw,
+ *  dubbelklik maakt ze even hoog. De andere rijen blijven zoals ze zijn. */
+function Greep({
+  boven,
+  onder,
+  gewicht,
+  zet,
+  menu,
+}: {
+  boven: RijId;
+  onder: RijId;
+  gewicht: Record<RijId, number>;
+  zet: (g: Record<RijId, number>) => void;
+  menu: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <div
+      className="rij-greep"
+      onContextMenu={menu}
+      role="separator"
+      aria-orientation="horizontal"
+      title="Drag to resize, double-click to make both rows equal, right-click for more"
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        const el = e.currentTarget;
+        const a = el.previousElementSibling?.getBoundingClientRect().height ?? 0;
+        const b = el.nextElementSibling?.getBoundingClientRect().height ?? 0;
+        const som = gewicht[boven] + gewicht[onder];
+        if (a + b <= 0) return;
+        el.setPointerCapture(e.pointerId);
+        el.classList.add("sleept");
+        const y0 = e.clientY;
+        const beweeg = (ev: PointerEvent) => {
+          const min = Math.min(MIN_HOOGTE, (a + b) / 2);
+          const nieuw = Math.min(a + b - min, Math.max(min, a + ev.clientY - y0));
+          const g = (som * nieuw) / (a + b);
+          zet({ ...gewicht, [boven]: g, [onder]: som - g });
+        };
+        const los = () => {
+          el.classList.remove("sleept");
+          el.removeEventListener("pointermove", beweeg);
+          el.removeEventListener("pointerup", los);
+          el.removeEventListener("pointercancel", los);
+        };
+        el.addEventListener("pointermove", beweeg);
+        el.addEventListener("pointerup", los);
+        el.addEventListener("pointercancel", los);
+      }}
+      onDoubleClick={() => {
+        const helft = (gewicht[boven] + gewicht[onder]) / 2;
+        zet({ ...gewicht, [boven]: helft, [onder]: helft });
+      }}
+    />
   );
 }
 
 function Rij({
   titel,
   leeg,
-  laatste,
+  gewicht,
+  sluit,
+  menu,
   children,
 }: {
   titel: string;
   leeg: string;
-  laatste?: boolean;
+  /** Aandeel in de hoogte (flex-grow). */
+  gewicht: number;
+  sluit: () => void;
+  /** Rechtsklik naast de strips. */
+  menu: (e: React.MouseEvent) => void;
   children: ReactNode[];
 }) {
   return (
-    <section className={`rij${laatste ? " laatste" : ""}`} aria-label={titel}>
-      <div className="rij-titel">{titel}</div>
+    <section className="rij" aria-label={titel} style={{ flexGrow: gewicht }} onContextMenu={menu}>
+      <div className="rij-kant">
+        <button className="rij-sluit" aria-label={`Hide ${titel}`} title={`Hide the ${titel} row`} onClick={sluit}>
+          ×
+        </button>
+        <div className="rij-titel">{titel}</div>
+      </div>
       <div className="rij-strips">
         {children.length ? children : <p className="zacht leeg-rij">{leeg}</p>}
       </div>

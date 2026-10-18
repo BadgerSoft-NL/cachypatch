@@ -87,6 +87,10 @@ Concept en ontwerp staan in Nokta (`CachyPatch.nokta`, notities **Concept** en
   (niet "keer om"), en undo/redo lopen in een rij met 250 ms ertussen.
 - `src/Mixer.tsx` — de strips; fader is de faderwet van CachyMix. Mute van een
   paar (geen hele node) gaat via volume 0. Verborgen strips in `localStorage`.
+  Rijen kun je verbergen (× op de rij, terug via Hidden; sleutel `rij|…` in
+  dezelfde lijst) en tussen twee rijen versleep je de hoogte (flex-grow per
+  rij, ook in `localStorage`; dubbelklik = die twee gelijk). Rechtsklik op een
+  rij (niet op een strip) of greep: alle rijen gelijk, of de rij verbergen.
 - `src/meters.ts` — één animatielus zet de meterbalkjes direct in de DOM
   (−60…0 dBFS, val 24 dB/s, piek 1 s), zodat React niet 25×/s hertekent.
 - `src/midi.ts`, `src/MidiMeter.tsx` — MIDI-activiteit met 150 ms nagloei; een
