@@ -1,9 +1,21 @@
-// De audio-mixer: drie rijen strips. Onderin kies je met "edit" welke
-// bestemming je bewerkt; in de rijen erboven zet een groene knop per bron de
-// route daarheen aan of uit. Andere routes blijven zoals ze zijn.
+// De audio-mixer: drie rijen strips. Onderin kies je welke bestemming je
+// bewerkt (klik ergens in de strip); in de rijen erboven zet een groene knop
+// per bron de route daarheen aan of uit. Andere routes blijven zoals ze zijn.
+//
+// De rec-bussen staan tussen de bestemmingen, met R om te wapenen, de
+// koppelknop (stereo of twee mono) zoals in CachyMix, en + / − om een paar
+// bij te maken of weg te halen. Hun fader en M werken op de bus zelf.
 
 import { useRef, type ReactNode } from "react";
-import { isBus, zetVolume } from "./api";
+import { zetVolume } from "./api";
+import {
+  busEraf,
+  busErbij,
+  standVan,
+  wisselKoppeling,
+  type BusConfig,
+  type BusStand,
+} from "./bussen";
 import { muteStap, schakelRoute, volumeVastleggen } from "./handelingen";
 import { MeterBalk } from "./Meter";
 import {
@@ -23,8 +35,12 @@ export function Mixer({
   verberg,
   naarPatchbay,
   opnemen,
+  busConfig,
+  zetBusConfig,
 }: {
   opnemen: boolean;
+  busConfig: BusConfig;
+  zetBusConfig: (f: (c: BusConfig) => BusConfig) => void;
   mixer: MixerModel;
   bewerkt: Strip | null;
   kiesBewerkt: (sleutel: string) => void;
@@ -53,13 +69,30 @@ export function Mixer({
         {mixer.hardware.filter(zichtbaar).map(bron)}
       </Rij>
       <Rij titel="Destinations" leeg="No destinations." laatste>
-        {mixer.bestemmingen.filter(zichtbaar).map((d) => {
+        {mixer.bestemmingen.filter(zichtbaar).flatMap((d, i, lijst) => {
           const gekozen = bewerkt?.sleutel === d.sleutel;
           const n = [...mixer.apps, ...mixer.hardware].filter(
             (b) => mixer.route(b, d).stand.soort !== "uit",
           ).length;
-          const neemtOp = opnemen && isBus(d.knoop);
-          return (
+          const def = d.bus;
+          const stand = def ? standVan(busConfig, def.sleutel) : null;
+          const neemtOp = opnemen && !!stand?.gewapend;
+          const bus = def &&
+            stand && {
+              stand,
+              zet: (w: Partial<BusStand>) =>
+                zetBusConfig((c) => ({
+                  ...c,
+                  stand: { ...c.stand, [def.sleutel]: { ...standVan(c, def.sleutel), ...w } },
+                })),
+              koppel: def.links
+                ? {
+                    gekoppeld: busConfig.paren[def.paar]?.gekoppeld ?? true,
+                    wissel: () => zetBusConfig((c) => wisselKoppeling(c, def.paar)),
+                  }
+                : undefined,
+            };
+          const kaart = (
             <Kaart
               key={d.sleutel}
               s={d}
@@ -67,6 +100,7 @@ export function Mixer({
               verberg={verberg}
               bestemming
               opname={neemtOp}
+              bus={bus || undefined}
               kies={() => kiesBewerkt(d.sleutel)}
             >
               <button
@@ -82,6 +116,25 @@ export function Mixer({
               </div>
             </Kaart>
           );
+          // Na de laatste bus: een paar bij of eraf.
+          const laatsteBus = def && !lijst.slice(i + 1).some((x) => x.bus);
+          if (!laatsteBus) return [kaart];
+          return [
+            kaart,
+            <div key="bus-erbij" className="bus-erbij">
+              <button className="knop" title="Add a Rec bus pair" onClick={() => zetBusConfig(busErbij)}>
+                + Bus
+              </button>
+              <button
+                className="knop"
+                title="Remove the last Rec bus pair"
+                disabled={busConfig.paren.length <= 1}
+                onClick={() => zetBusConfig(busEraf)}
+              >
+                − Bus
+              </button>
+            </div>,
+          ];
         })}
       </Rij>
     </main>
@@ -180,9 +233,16 @@ function Kaart({
   bestemming,
   opname,
   kies,
+  bus,
   children,
 }: {
   opname?: boolean;
+  /** Een rec-bus: fader en M gaan over de bus, met R en de koppelknop erbij. */
+  bus?: {
+    stand: BusStand;
+    zet: (w: Partial<BusStand>) => void;
+    koppel?: { gekoppeld: boolean; wissel: () => void };
+  };
   /** Een bestemming: klik ergens in de strip om hem te bewerken, zoals in CachyMix. */
   kies?: () => void;
   s: Strip;
@@ -191,11 +251,16 @@ function Kaart({
   bestemming?: boolean;
   children?: ReactNode;
 }) {
-  const db = stripDb(s);
+  const db = bus ? bus.stand.db : stripDb(s);
   const heel = s.kanalen.length === (s.knoop.volume?.length ?? -1);
-  const gemute = heel ? !!s.knoop.mute : voorMute.has(s.sleutel) && db !== null && db <= UIT_DB;
+  const gemute = bus
+    ? bus.stand.mute
+    : heel
+      ? !!s.knoop.mute
+      : voorMute.has(s.sleutel) && db !== null && db <= UIT_DB;
 
   const zetDb = (nieuw: number) => {
+    if (bus) return bus.zet({ db: nieuw });
     const v = metDb(s, nieuw);
     if (v) zetVolume(s.knoop.id, v);
     if (!heel) voorMute.delete(s.sleutel);
@@ -204,11 +269,13 @@ function Kaart({
   const voor = useRef<number[] | null>(null);
   const begin = () => (voor.current = s.knoop.volume ? [...s.knoop.volume] : null);
   const klaar = (db: number) => {
+    if (bus) return;
     const nieuw = metDb(s, db);
     if (voor.current && nieuw) volumeVastleggen(s.knoop.id, voor.current, nieuw);
     voor.current = null;
   };
   const mute = () => {
+    if (bus) return bus.zet({ mute: !bus.stand.mute });
     if (heel) return muteStap(s.knoop.id, !s.knoop.mute);
     const oud = s.knoop.volume ? [...s.knoop.volume] : null;
     let nieuw: number[] | null = null;
@@ -266,6 +333,31 @@ function Kaart({
         >
           M
         </button>
+        {bus && (
+          <button
+            className={"knop knop-rec" + (bus.stand.gewapend ? " aan" : "")}
+            aria-pressed={bus.stand.gewapend}
+            title={bus.stand.gewapend ? "Armed: recorded on Record" : "Arm for recording"}
+            onClick={(e) => {
+              e.stopPropagation();
+              bus.zet({ gewapend: !bus.stand.gewapend });
+            }}
+          >
+            R
+          </button>
+        )}
+        {bus?.koppel && (
+          <button
+            className={"knop knop-koppel" + (bus.koppel.gekoppeld ? " aan" : "")}
+            title={bus.koppel.gekoppeld ? "Split into two mono buses" : "Link as a stereo bus"}
+            onClick={(e) => {
+              e.stopPropagation();
+              bus.koppel!.wissel();
+            }}
+          >
+            {bus.koppel.gekoppeld ? "∞" : "–"}
+          </button>
+        )}
       </div>
     </article>
   );

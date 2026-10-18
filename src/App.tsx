@@ -8,7 +8,6 @@ import {
   volgTransport,
   zetTransport,
   type Graaf,
-  type Opties,
   type TransportStand,
 } from "./api";
 import { Transport } from "./Transport";
@@ -16,7 +15,8 @@ import { herhaal, maakOngedaan, useGeschiedenis } from "./geschiedenis";
 import { haalKabelsWeg, terugNaarAutoStap } from "./handelingen";
 import { deelIn } from "./indeling";
 import { Mixer } from "./Mixer";
-import { bouwMixer, telHandwerk } from "./mixer";
+import { bouwMixer, telHandwerk, zetBusDefs } from "./mixer";
+import { bewaarBussen, bussen, leesBussen, standVan, stuurBussen, type BusConfig } from "./bussen";
 import { volgPieken } from "./meters";
 import { volgMidi } from "./midi";
 import { bouwMidiMixer, MidiMixer } from "./MidiMixer";
@@ -29,16 +29,19 @@ type Weergave = "mixer" | "patchbay";
 // weergave, geen routing, dus die mag blijven.
 const VERBORGEN = "cachypatch.verborgen";
 
-// De keuzes van de transportbalk; ook een voorkeur, geen routing.
-const OPTIES = "cachypatch.opties";
-const STANDAARD: Opties = { mixdown: true, multitrack: true, midi: true, klok: null, start_stop: false };
+// De klok-keuzes van de transportbalk; ook een voorkeur, geen routing.
+const KLOK = "cachypatch.klok";
+export interface KlokKeuze {
+  klok: number | null;
+  start_stop: boolean;
+}
 
-function leesOpties(): Opties {
+function leesKlok(): KlokKeuze {
   try {
     // De klok wijst naar een poort-id, en die geldt maar één sessie.
-    return { ...STANDAARD, ...JSON.parse(localStorage.getItem(OPTIES) ?? "{}"), klok: null };
+    return { start_stop: false, ...JSON.parse(localStorage.getItem(KLOK) ?? "{}"), klok: null };
   } catch {
-    return STANDAARD;
+    return { klok: null, start_stop: false };
   }
 }
 
@@ -62,7 +65,9 @@ export default function App() {
   const [toonVerborgen, setToonVerborgen] = useState(false);
   const [bevestig, setBevestig] = useState(false);
   const [transport, setTransport] = useState<TransportStand>(STIL);
-  const [opties, setOpties] = useState<Opties>(leesOpties);
+  const [klok, setKlok] = useState<KlokKeuze>(leesKlok);
+  const [busConfig, setBusConfig] = useState<BusConfig>(leesBussen);
+  const busDefs = useMemo(() => bussen(busConfig), [busConfig]);
 
   useEffect(() => volgGraaf(setGraaf), []);
   // De nep-pieken willen de huidige graph weten; een ref houdt die bij.
@@ -90,18 +95,27 @@ export default function App() {
     window.addEventListener("keydown", toets);
     return () => window.removeEventListener("keydown", toets);
   }, []);
+  // Wat de Rust-kant moet weten: de gewapende bussen, de klok, en het aantal
+  // kanalen en de gain van de Rec bus. Opnieuw na een herverbinding.
   useEffect(() => {
-    zetTransport(opties);
+    if (!graaf.verbonden) return;
+    stuurBussen(busConfig);
+    zetTransport({
+      bussen: busDefs
+        .filter((b) => standVan(busConfig, b.sleutel).gewapend)
+        .map((b) => ({ naam: b.bestand, kanalen: b.kanalen })),
+      midi: busConfig.midi,
+      ...klok,
+    });
+  }, [busConfig, busDefs, klok, graaf.verbonden]);
+  useEffect(() => bewaarBussen(busConfig), [busConfig]);
+  useEffect(() => {
     try {
-      localStorage.setItem(OPTIES, JSON.stringify(opties));
+      localStorage.setItem(KLOK, JSON.stringify(klok));
     } catch {
       // Geen opslag: dan de standaard na een herstart.
     }
-  }, [opties]);
-  // Na een herverbinding kent de Rust-kant de opties niet meer.
-  useEffect(() => {
-    if (graaf.verbonden) zetTransport(opties);
-  }, [graaf.verbonden]);
+  }, [klok]);
   useEffect(() => {
     try {
       localStorage.setItem(VERBORGEN, JSON.stringify([...verborgen]));
@@ -111,7 +125,10 @@ export default function App() {
   }, [verborgen]);
 
   const indeling = useMemo(() => deelIn(graaf, tab), [graaf, tab]);
-  const mixer = useMemo(() => bouwMixer(graaf), [graaf]);
+  const mixer = useMemo(() => {
+    zetBusDefs(busDefs);
+    return bouwMixer(graaf);
+  }, [graaf, busDefs]);
   const midiMixer = useMemo(() => bouwMidiMixer(graaf), [graaf]);
   const midiBewerkt =
     midiMixer.bestemmingen.find((d) => d.sleutel === midiBewerktSleutel) ??
@@ -296,8 +313,10 @@ export default function App() {
           tab={tab}
           graaf={graaf}
           stand={transport}
-          opties={opties}
-          zetOpties={setOpties}
+          klok={klok}
+          zetKlok={setKlok}
+          gewapend={busDefs.filter((b) => standVan(busConfig, b.sleutel).gewapend).map((b) => b.naam)}
+          midiGewapend={busConfig.midi}
           midiNaarBus={midiNaarBus}
         />
       )}
@@ -337,6 +356,8 @@ export default function App() {
           verberg={verberg}
           naarPatchbay={() => setWeergave("patchbay")}
           opnemen={transport.bezig}
+          busConfig={busConfig}
+          zetBusConfig={setBusConfig}
         />
       ) : (
         <MidiMixer
@@ -346,6 +367,8 @@ export default function App() {
           verborgen={verborgen}
           verberg={verberg}
           opnemen={transport.bezig}
+          midiGewapend={busConfig.midi}
+          zetMidiGewapend={(midi: boolean) => setBusConfig((c) => ({ ...c, midi }))}
         />
       )}
     </div>

@@ -35,16 +35,23 @@ Concept en ontwerp staan in Nokta (`CachyPatch.nokta`, notities **Concept** en
   ingang en een eigen link (zonder linger). Telt events, kanalen, soorten en
   het laatste muzikale event. Event `midi`. Raw `pw_sys`, zoals miau-core.
 - `src-tauri/src/opname.rs` — de Rec bus (`cachypatch-opname`, een zichtbare
-  `pw_filter`-node met `input_FL`/`input_FR`/`midi_in`, `media.class`
-  `Stream/Input/Audio`, `node.autoconnect=false`), de schrijfdraad (`hound`,
-  32-bit float) en de klok/MIDI-bestand (`midly`, type 1, 480 PPQ). Mixdown =
-  wat op de bus binnenkomt; multitrack komt uit de meter-streams, MIDI per
-  bronpoort uit de MIDI-meter. Wat meedoet = wat bij Start naar de bus gaat.
+  `pw_filter`-node met `rec_1…rec_N` (`AUX0…`) en `midi_in`, `media.class`
+  `Stream/Input/Audio`, `node.autoconnect=false`). Per kanaal een gain en een
+  piek (event `pieken`, onder het eigen node-id). Elke gewapende bus = één WAV
+  met zijn kanalen, uit één process-ronde dus sample-precies gelijk. De
+  schrijfdraad (`hound`, 32-bit float) en klok/MIDI-bestand (`midly`, type 1,
+  480 PPQ); MIDI per bronpoort uit de MIDI-meter, wat bij Start naar
+  `midi_in` gaat.
+- `src/bussen.ts` — de indeling van de Rec bus in bussen (paren, gekoppeld of
+  twee mono, zoals in CachyMix), en per bus fader, mute en R. Configuratie, in
+  `localStorage`; naar Rust gaan alleen het aantal kanalen en de gains.
   Uitvoer in `~/Recordings/JJJJ-MM-DD_UUMM/`. Externe klok: pulsen tellen
   (24 ppq) met interpolatie, tempo per tel, nieuw tempo-event bij > 0,5 %
   verschil; lock als de pulsen < 20 % afwijken.
 - Eigen nodes heten `cachypatch-meter-…` en blijven met hun poorten en links
-  buiten de momentopname.
+  buiten de momentopname. Bus en MIDI-meter herkennen zichzelf aan hun
+  node-id (`pw_filter_get_node_id`), niet aan de naam: een voorbeeld naast de
+  app heeft nodes die net zo heten.
 - `src/indeling.ts` — van graph naar modules: links wat levert, rechts wat
   ontvangt, een node met beide wordt twee modules. Monitors en Midi Through
   verborgen. De Midi-Bridge is één node met alle ALSA-MIDI erin; die wordt per

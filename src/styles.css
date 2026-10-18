@@ -1250,3 +1250,34 @@ button:disabled {
 .regel.rood {
   color: #ff7a7e;
 }
+
+/* ------------------------------------------------------------ rec-bussen */
+
+.knop-rec.aan {
+  background: var(--rood);
+  border-color: var(--rood);
+  color: #fff;
+}
+
+.knop-koppel.aan {
+  color: var(--accent);
+}
+
+.bus-erbij {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  flex: none;
+  width: 54px;
+}
+
+.bus-erbij .knop {
+  flex: none;
+  height: 26px;
+}
+
+.gewapend {
+  color: #ff7a7e;
+  font-weight: 600;
+}

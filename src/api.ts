@@ -86,8 +86,9 @@ export function isBus(k: { naam: string }): boolean {
 // --- Opname ---
 
 export interface Opties {
-  mixdown: boolean;
-  multitrack: boolean;
+  /** De gewapende audiobussen: per bus een WAV met deze kanalen. */
+  bussen: { naam: string; kanalen: number[] }[];
+  /** De MIDI-ingang van de bus is gewapend. */
   midi: boolean;
   /** MIDI-bronpoort van de externe klok; null = intern. */
   klok: number | null;
@@ -134,6 +135,27 @@ export function volgTransport(bij: (t: TransportStand) => void): () => void {
 
 export function zetTransport(opties: Opties) {
   if (inTauri) invoke("zet_transport", { opties });
+}
+
+/** Hoeveel kanalen de Rec bus heeft, en de gain per kanaal (0 = mute). */
+export function zetBus(kanalen: number, gain: number[]) {
+  if (inTauri) return void invoke("zet_bus", { kanalen, gain });
+  // Nep: de bus krijgt zoveel rec_N-poorten.
+  nepWijzig((g) => {
+    const bus = g.knopen.find(isBus);
+    if (!bus) return;
+    const nu = g.poorten.filter((p) => p.knoop === bus.id && p.soort === "audio");
+    for (const p of nu.slice(kanalen)) {
+      g.poorten = g.poorten.filter((q) => q.id !== p.id);
+      g.kabels = g.kabels.filter((k) => k.in_poort !== p.id);
+    }
+    for (let i = nu.length; i < kanalen; i++) {
+      g.poorten.push({
+        id: nepId++, knoop: bus.id, volgnummer: i + 1, naam: `rec_${i + 1}`, alias: null, ingang: true,
+        soort: "audio", kanaal: `AUX${i}`, monitor: false, fysiek: false, groep: null,
+      });
+    }
+  });
 }
 
 export function startOpname() {
@@ -391,7 +413,7 @@ function nepGraaf(): Graaf {
   const dcMic = poort(discordMic, "input_MONO", true, { kanaal: "MONO" });
 
   const bus = knoop({ naam: BUS, app: "CachyPatch", beschrijving: "Rec bus", klasse: "Stream/Input/Audio" });
-  const busIn = ["FL", "FR"].map((c) => poort(bus, `input_${c}`, true, { kanaal: c }));
+  const busIn = [0, 1].map((i) => poort(bus, `rec_${i + 1}`, true, { kanaal: `AUX${i}` }));
   const busMidi = poort(bus, "midi_in", true, { soort: "midi" });
 
   spUit.forEach((p, i) => kabel(p, ffOut[i]));

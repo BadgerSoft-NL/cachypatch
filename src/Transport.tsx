@@ -1,24 +1,30 @@
 // De transportbalk onder de kop, in beide mixers. Eén opname: start je hem in
-// de ene tab, dan loopt hij ook in de andere. Wat er meedoet is wat er naar de
-// Rec bus gerouteerd is.
+// de ene tab, dan loopt hij ook in de andere. Wat er meedoet zijn de bussen
+// waarop R aan staat: elke bus één WAV, en de MIDI-ingang één .mid.
 
 import { useEffect, useState } from "react";
-import { startOpname, stopOpname, type Graaf, type Opties, type TransportStand } from "./api";
+import { startOpname, stopOpname, type Graaf, type TransportStand } from "./api";
+import type { KlokKeuze } from "./App";
 import { midiDing, poortLabel } from "./indeling";
 
 export function Transport({
   tab,
   graaf,
   stand,
-  opties,
-  zetOpties,
+  klok,
+  zetKlok,
+  gewapend,
+  midiGewapend,
   midiNaarBus,
 }: {
   tab: "audio" | "midi";
   graaf: Graaf;
   stand: TransportStand;
-  opties: Opties;
-  zetOpties: (o: Opties) => void;
+  klok: KlokKeuze;
+  zetKlok: (k: KlokKeuze) => void;
+  /** Namen van de gewapende audiobussen. */
+  gewapend: string[];
+  midiGewapend: boolean;
   /** Namen van de MIDI-bronnen die nu naar de Rec bus gaan. */
   midiNaarBus: string[];
 }) {
@@ -31,8 +37,8 @@ export function Transport({
       return { id: p.id, naam: ding.titel, poort: poortLabel(p, "midi"), doorvoer: ding.doorvoer };
     })
     .filter((b) => !b.doorvoer);
-  const extern = opties.klok !== null;
-  const zet = (o: Partial<Opties>) => zetOpties({ ...opties, ...o });
+  const extern = klok.klok !== null;
+  const zet = (o: Partial<KlokKeuze>) => zetKlok({ ...klok, ...o });
   const rate = graaf.rate ? `${Math.round(graaf.rate / 1000)}k` : "?";
 
   return (
@@ -50,18 +56,17 @@ export function Transport({
         <span className="map">{stand.map ?? "~/Recordings/"}</span>
       </div>
       {tab === "audio" && (
-        <div className="groep" role="group" aria-label="Audio format">
-          <span className="label">Audio</span>
-          <Vinkje aan={opties.mixdown} zet={(v) => zet({ mixdown: v })} tekst="Mixdown" />
-          <Vinkje aan={opties.multitrack} zet={(v) => zet({ multitrack: v })} tekst="Multitrack" />
+        <div className="groep" role="group" aria-label="Armed buses">
+          <span className="label">Armed</span>
+          <span className={gewapend.length ? "gewapend" : "zacht"}>{gewapend.join(", ") || "none"}</span>
           <span className="mono zacht">WAV · 32f · {rate}</span>
         </div>
       )}
-      <div className="groep" role="group" aria-label="MIDI format">
-        {tab === "audio" && <span className="label">MIDI</span>}
-        <Vinkje aan={opties.midi} zet={(v) => zet({ midi: v })} tekst=".mid" />
+      <div className="groep" role="group" aria-label="MIDI">
+        <span className="label">MIDI</span>
+        <span className={midiGewapend ? "gewapend" : "zacht"}>{midiGewapend ? "armed" : "off"}</span>
         <span className="mono zacht">
-          {tab === "midi" ? "SMF type 1 · track per source" : midiNaarBus.join(", ") || "nothing routed"}
+          {midiGewapend ? midiNaarBus.join(", ") || "nothing routed" : "SMF type 1 · track per source"}
         </span>
       </div>
       <div className="groep" role="group" aria-label="Clock">
@@ -70,7 +75,7 @@ export function Transport({
         </label>
         <select
           id="klok"
-          value={opties.klok ?? ""}
+          value={klok.klok ?? ""}
           onChange={(e) => zet({ klok: e.target.value === "" ? null : Number(e.target.value) })}
         >
           <option value="">Internal</option>
@@ -86,7 +91,7 @@ export function Transport({
             <span className="bpm">{stand.klok.bpm ? stand.klok.bpm.toFixed(1) : "—"}</span>
             <span className="zacht">BPM</span>
             <span className={`lock${stand.klok.lock ? " aan" : ""}`}>{stand.klok.lock ? "lock" : "no clock"}</span>
-            <Vinkje aan={opties.start_stop} zet={(v) => zet({ start_stop: v })} tekst="Start/stop on MIDI Start" />
+            <Vinkje aan={klok.start_stop} zet={(v) => zet({ start_stop: v })} tekst="Start/stop on MIDI Start" />
           </>
         ) : (
           <>
