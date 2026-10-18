@@ -1,10 +1,11 @@
 pub mod graaf;
 pub mod meter;
 pub mod midimeter;
+pub mod opname;
 
 use tauri::{Emitter, Manager, State};
 
-use graaf::{Graaf, Melding, Momentopname, Opdracht};
+use graaf::{Graaf, Melding, Momentopname, Opdracht, Opties};
 
 #[tauri::command]
 fn haal_graaf(g: State<Graaf>) -> Momentopname {
@@ -36,6 +37,21 @@ fn zet_volume(g: State<Graaf>, knoop: u32, volume: Vec<f32>) {
 }
 
 #[tauri::command]
+fn zet_transport(g: State<Graaf>, opties: Opties) {
+    g.doe(Opdracht::ZetTransport(opties));
+}
+
+#[tauri::command]
+fn start_opname(g: State<Graaf>) {
+    g.doe(Opdracht::Start);
+}
+
+#[tauri::command]
+fn stop_opname(g: State<Graaf>) {
+    g.doe(Opdracht::Stop);
+}
+
+#[tauri::command]
 fn zet_mute(g: State<Graaf>, knoop: u32, mute: bool) {
     g.doe(Opdracht::ZetMute { knoop, mute });
 }
@@ -60,6 +76,9 @@ pub fn run() {
                 Melding::Midi(m) => {
                     let _ = handle.emit("midi", m);
                 }
+                Melding::Transport(t) => {
+                    let _ = handle.emit("transport", t);
+                }
             })));
             Ok(())
         })
@@ -70,6 +89,9 @@ pub fn run() {
             zet_doel,
             zet_volume,
             zet_mute,
+            zet_transport,
+            start_opname,
+            stop_opname,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

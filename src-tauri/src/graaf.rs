@@ -34,6 +34,7 @@ use serde::Serialize;
 
 use crate::meter::{self, Meter};
 use crate::midimeter::{self, Activiteit, MidiMeter};
+use crate::opname::{self, Actief, Bericht, Bus, Klok, KlokStand, MidiBestand, Opnemer, Spoor};
 
 /// Wat PipeWire in `format.dsp` zet voor MIDI: oude bytes of UMP.
 const DSP_MIDI: &str = "8 bit raw midi";
@@ -154,6 +155,31 @@ pub enum Melding<'a> {
     Pieken(&'a Pieken),
     /// MIDI-activiteit per bronpoort (poort-id), sinds de vorige melding.
     Midi(&'a BTreeMap<u32, Activiteit>),
+    /// Hoe het met de opname en de klok staat; vijf keer per seconde.
+    Transport(&'a TransportStand),
+}
+
+/// Wat de opname moet doen als hij start.
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct Opties {
+    pub mixdown: bool,
+    pub multitrack: bool,
+    pub midi: bool,
+    /// De MIDI-bronpoort van de externe klok; `None` = intern.
+    pub klok: Option<u32>,
+    /// Starten en stoppen op MIDI Start/Stop van de klok.
+    pub start_stop: bool,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct TransportStand {
+    pub bezig: bool,
+    /// De map van de lopende (of laatste) opname.
+    pub map: Option<String>,
+    pub seconden: f64,
+    pub klok: KlokStand,
+    /// Wat er misging bij de laatste opname.
+    pub fout: Option<String>,
 }
 
 /// Wordt aangeroepen vanaf de graph-draad.
@@ -174,6 +200,10 @@ pub enum Opdracht {
     /// Volume per kanaal, lineair.
     ZetVolume { knoop: u32, volume: Vec<f32> },
     ZetMute { knoop: u32, mute: bool },
+    /// Opties voor de volgende opname, en welke klok.
+    ZetTransport(Opties),
+    Start,
+    Stop,
 }
 
 /// De levende spiegel. Leeft zo lang als de app; de draad stopt niet.
@@ -685,25 +715,78 @@ fn sessie(
     // is ruim genoeg.
     let gelegd: Rc<RefCell<std::collections::VecDeque<pw::link::Link>>> = Rc::default();
 
+    // De opname: wat er loopt, de klok, en de Rec bus zelf.
+    let opnemer: Opnemer = Rc::default();
+    let klok: Rc<RefCell<Klok>> = Rc::default();
+    let transport: Rc<RefCell<Transport>> = Rc::default();
+    let _bus = Bus::maak(&core, Rc::clone(&opnemer));
+
     let ontvanger = rx.attach(mainloop.loop_(), {
         let core = core.clone();
         let registry = registry.clone();
         let bindingen = Rc::clone(&bindingen);
         let gelegd = Rc::clone(&gelegd);
-        move |o| uitvoeren(o, &core, &registry, &bindingen.borrow(), &gelegd)
+        let staat = Rc::clone(&staat);
+        let opnemer = Rc::clone(&opnemer);
+        let klok = Rc::clone(&klok);
+        let transport = Rc::clone(&transport);
+        move |o| match o {
+            Opdracht::ZetTransport(opties) => {
+                let mut k = klok.borrow_mut();
+                if k.bron != opties.klok {
+                    k.recent.clear();
+                }
+                k.bron = opties.klok;
+                k.start_stop = opties.start_stop;
+                transport.borrow_mut().opties = Some(opties);
+            }
+            Opdracht::Start => {
+                begin(&staat.borrow(), &mut transport.borrow_mut(), &opnemer)
+            }
+            Opdracht::Stop => eindig(&mut transport.borrow_mut(), &opnemer, &klok.borrow()),
+            o => uitvoeren(o, &core, &registry, &bindingen.borrow(), &gelegd),
+        }
     });
 
     // Eén meter per node die geluid maakt of ontvangt.
     let meters: Rc<RefCell<BTreeMap<u32, Meter>>> = Rc::default();
     // En één node die alle MIDI-uitgangen afluistert.
-    let midi = Rc::new(RefCell::new(MidiMeter::maak(&core)));
+    let midi = Rc::new(RefCell::new(MidiMeter::maak(&core, Rc::clone(&opnemer), Rc::clone(&klok))));
+    let tikken = std::cell::Cell::new(0u32);
 
     let timer = mainloop.loop_().add_timer({
         let staat = Rc::clone(&staat);
         let meters = Rc::clone(&meters);
         let midi = Rc::clone(&midi);
         let core = core.clone();
+        let opnemer = Rc::clone(&opnemer);
+        let klok = Rc::clone(&klok);
+        let transport = Rc::clone(&transport);
         move |_| {
+            // Start of Stop van de externe klok.
+            let verzoek = klok.borrow_mut().verzoek.take();
+            match verzoek {
+                Some(true) if opnemer.borrow().is_none() => {
+                    begin(&staat.borrow(), &mut transport.borrow_mut(), &opnemer)
+                }
+                Some(false) if opnemer.borrow().is_some() => {
+                    eindig(&mut transport.borrow_mut(), &opnemer, &klok.borrow())
+                }
+                _ => {}
+            }
+            tikken.set(tikken.get().wrapping_add(1));
+            if tikken.get().is_multiple_of(5) {
+                let mut t = transport.borrow_mut();
+                t.ruim_op();
+                let stand = TransportStand {
+                    bezig: opnemer.borrow().is_some(),
+                    map: t.map.as_ref().map(|m| m.display().to_string()),
+                    seconden: opnemer.borrow().as_ref().map_or(0.0, |a| a.t0.elapsed().as_secs_f64()),
+                    klok: klok.borrow().stand(),
+                    fout: t.fout.clone(),
+                };
+                meld_overig(Melding::Transport(&stand));
+            }
             if let Some(mm) = midi.borrow_mut().as_mut() {
                 let s = staat.borrow();
                 let bronnen: Vec<u32> = s
@@ -729,7 +812,9 @@ fn sessie(
                 m.retain(|id, meter| moet.get(id).is_some_and(|(_, _, k)| *k == meter.kanalen));
                 for (id, (serial, sink, kanalen)) in moet {
                     if let std::collections::btree_map::Entry::Vacant(plek) = m.entry(id) {
-                        if let Some(meter) = meter::maak(&core, id, serial, sink, kanalen) {
+                        if let Some(meter) =
+                            meter::maak(&core, id, serial, sink, kanalen, Rc::clone(&opnemer))
+                        {
                             plek.insert(meter);
                         }
                     }
@@ -750,9 +835,169 @@ fn sessie(
 
     mainloop.run();
     drop(timer);
+    // Een opname die nog liep, netjes afsluiten.
+    eindig(&mut transport.borrow_mut(), &opnemer, &klok.borrow());
     meters.borrow_mut().clear();
     midi.borrow_mut().take();
     (Ok(()), ontvanger.deattach())
+}
+
+/// Wat de graph-draad over de opname bijhoudt.
+#[derive(Default)]
+struct Transport {
+    opties: Option<Opties>,
+    map: Option<std::path::PathBuf>,
+    fout: Option<String>,
+    /// De schrijfdraad van de laatste opname, tot hij klaar is.
+    schrijver: Option<std::thread::JoinHandle<Result<(), String>>>,
+    /// Namen van de MIDI-sporen, voor het bestand.
+    midi_namen: Vec<String>,
+}
+
+impl Transport {
+    /// Een klaar schrijvertje oogsten, zodat een fout op het scherm komt.
+    fn ruim_op(&mut self) {
+        if self.schrijver.as_ref().is_some_and(|d| d.is_finished()) {
+            if let Some(Err(e)) = self.schrijver.take().map(|d| d.join().unwrap_or(Err("writer panicked".into()))) {
+                self.fout = Some(e);
+            }
+        }
+    }
+}
+
+/// Start een opname met wat er nu naar de Rec bus gerouteerd is.
+fn begin(s: &Staat, t: &mut Transport, opnemer: &Opnemer) {
+    if opnemer.borrow().is_some() {
+        return;
+    }
+    t.fout = None;
+    let opties = t.opties.clone().unwrap_or(Opties {
+        mixdown: true,
+        multitrack: true,
+        midi: true,
+        klok: None,
+        start_stop: false,
+    });
+    match plan(s, &opties) {
+        Err(e) => t.fout = Some(e),
+        Ok((sporen, mixdown, audio, midi, midi_namen)) => {
+            let map = opname::nieuwe_map();
+            let rate = s.force_rate.or(s.rate).unwrap_or(48_000);
+            match opname::schrijver(&map, sporen, rate) {
+                Err(e) => t.fout = Some(format!("{}: {e}", map.display())),
+                Ok((tx, draad)) => {
+                    *opnemer.borrow_mut() = Some(Actief {
+                        tx,
+                        t0: std::time::Instant::now(),
+                        mixdown,
+                        audio,
+                        midi,
+                        midi_events: Vec::new(),
+                        pulsen: Vec::new(),
+                    });
+                    t.map = Some(map);
+                    t.schrijver = Some(draad);
+                    t.midi_namen = midi_namen;
+                }
+            }
+        }
+    }
+}
+
+type Plan = (Vec<Spoor>, Option<usize>, BTreeMap<u32, Vec<(usize, Vec<usize>)>>, BTreeMap<u32, usize>, Vec<String>);
+
+/// Welke sporen er komen: de mixdown, per bron die naar de bus gaat een
+/// multitrack-spoor, en per MIDI-bron een spoor in het MIDI-bestand.
+fn plan(s: &Staat, o: &Opties) -> Result<Plan, String> {
+    let bus = s
+        .knopen
+        .values()
+        .find(|k| k.naam == opname::BUS_NAAM)
+        .ok_or("The Rec bus is not there")?;
+    let bus_poorten: Vec<&Poort> = s.poorten.values().filter(|p| p.knoop == bus.id).collect();
+    let audio_in: BTreeSet<u32> = bus_poorten.iter().filter(|p| p.soort == Soort::Audio).map(|p| p.id).collect();
+    let midi_in: BTreeSet<u32> = bus_poorten.iter().filter(|p| p.soort == Soort::Midi).map(|p| p.id).collect();
+
+    let mut sporen = Vec::new();
+    let mut mixdown = None;
+    if o.mixdown {
+        mixdown = Some(sporen.len());
+        sporen.push(Spoor { naam: "Mixdown".into(), kanalen: 2 });
+    }
+
+    // Multitrack: per bron-node de kanalen die naar de bus gaan, in de
+    // volgorde waarin zijn meter ze levert.
+    let mut audio: BTreeMap<u32, Vec<(usize, Vec<usize>)>> = BTreeMap::new();
+    let mut aantal_audio = 0;
+    if o.multitrack {
+        let meterbaar = s.meterbaar();
+        let mut per_knoop: BTreeMap<u32, BTreeSet<usize>> = BTreeMap::new();
+        for k in s.kabels.values().filter(|k| audio_in.contains(&k.in_poort)) {
+            let Some((_, sink, kanalen)) = meterbaar.get(&k.uit_knoop) else { continue };
+            let Some(p) = s.poorten.get(&k.uit_poort) else { continue };
+            // De monitor van een sink draagt dezelfde kanalen als zijn ingangen.
+            if p.monitor != *sink {
+                continue;
+            }
+            if let Some(i) = kanalen.iter().position(|c| Some(c) == p.kanaal.as_ref()) {
+                per_knoop.entry(k.uit_knoop).or_default().insert(i);
+            }
+        }
+        for (knoop, idx) in per_knoop {
+            let k = &s.knopen[&knoop];
+            let kanalen: Vec<usize> = idx.into_iter().collect();
+            let alle = meterbaar[&knoop].2.len();
+            let mut naam = k.app.clone().or(k.beschrijving.clone()).unwrap_or(k.naam.clone());
+            if kanalen.len() < alle {
+                let nrs: Vec<String> = kanalen.iter().map(|i| (i + 1).to_string()).collect();
+                naam = format!("{naam} {}", nrs.join("-"));
+            }
+            audio.entry(knoop).or_default().push((sporen.len() + aantal_audio, kanalen.clone()));
+            aantal_audio += 1;
+            sporen.push(Spoor { naam: format!("{:02} {naam}", aantal_audio), kanalen: kanalen.len() as u16 });
+        }
+    }
+
+    // MIDI: per bronpoort die naar de bus gaat.
+    let mut midi = BTreeMap::new();
+    let mut midi_namen = Vec::new();
+    if o.midi {
+        for k in s.kabels.values().filter(|k| midi_in.contains(&k.in_poort)) {
+            if midi.contains_key(&k.uit_poort) {
+                continue;
+            }
+            let p = s.poorten.get(&k.uit_poort);
+            let knoop = s.knopen.get(&k.uit_knoop);
+            let naam = match (p, knoop) {
+                (Some(p), Some(n)) if n.naam == "Midi-Bridge" => p
+                    .alias
+                    .as_deref()
+                    .and_then(|a| a.split(':').next())
+                    .unwrap_or(&p.naam)
+                    .to_owned(),
+                (_, Some(n)) => n.app.clone().or(n.beschrijving.clone()).unwrap_or(n.naam.clone()),
+                _ => format!("MIDI {}", k.uit_poort),
+            };
+            midi.insert(k.uit_poort, midi_namen.len());
+            midi_namen.push(naam);
+        }
+    }
+
+    if sporen.is_empty() && midi.is_empty() {
+        return Err("Nothing to record: route sources to the Rec bus first".into());
+    }
+    Ok((sporen, mixdown, audio, midi, midi_namen))
+}
+
+/// Stopt de opname: de schrijfdraad maakt de bestanden af.
+fn eindig(t: &mut Transport, opnemer: &Opnemer, klok: &Klok) {
+    let Some(a) = opnemer.borrow_mut().take() else { return };
+    let midi = (!t.midi_namen.is_empty()).then(|| MidiBestand {
+        namen: std::mem::take(&mut t.midi_namen),
+        events: a.midi_events,
+        pulsen: klok.bron.is_some().then_some(a.pulsen),
+    });
+    let _ = a.tx.send(Bericht::Stop(midi));
 }
 
 fn uitvoeren(
@@ -803,6 +1048,8 @@ fn uitvoeren(
             let eigenschap = Property::new(pw::spa::sys::SPA_PROP_mute, Value::Bool(mute));
             stuur_props(bindingen, knoop, eigenschap);
         }
+        // Die handelt de ontvanger in `sessie` zelf af.
+        Opdracht::ZetTransport(_) | Opdracht::Start | Opdracht::Stop => {}
     }
 }
 

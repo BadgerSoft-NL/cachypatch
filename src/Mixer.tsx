@@ -3,7 +3,7 @@
 // route daarheen aan of uit. Andere routes blijven zoals ze zijn.
 
 import { useRef, type ReactNode } from "react";
-import { zetMute, zetVolume, type Graaf } from "./api";
+import { isBus, zetMute, zetVolume, type Graaf } from "./api";
 import { MeterBalk } from "./Meter";
 import {
   MAX_DB,
@@ -23,7 +23,9 @@ export function Mixer({
   verborgen,
   verberg,
   naarPatchbay,
+  opnemen,
 }: {
+  opnemen: boolean;
   graaf: Graaf;
   mixer: MixerModel;
   bewerkt: Strip | null;
@@ -59,8 +61,9 @@ export function Mixer({
           const n = [...mixer.apps, ...mixer.hardware].filter(
             (b) => mixer.route(b, d).stand.soort !== "uit",
           ).length;
+          const neemtOp = opnemen && isBus(d.knoop);
           return (
-            <Kaart key={d.sleutel} s={d} gekozen={gekozen} verberg={verberg} bestemming>
+            <Kaart key={d.sleutel} s={d} gekozen={gekozen} verberg={verberg} bestemming opname={neemtOp}>
               <button
                 className={`kies${gekozen ? " aan" : ""}`}
                 aria-pressed={gekozen}
@@ -68,7 +71,10 @@ export function Mixer({
               >
                 {gekozen ? "editing" : "edit"}
               </button>
-              <div className="regel">{n === 1 ? "1 source" : `${n} sources`}</div>
+              <div className={`regel${neemtOp ? " rood" : ""}`}>
+                {neemtOp ? "● rec · " : ""}
+                {n === 1 ? "1 source" : `${n} sources`}
+              </div>
             </Kaart>
           );
         })}
@@ -169,8 +175,10 @@ function Kaart({
   gekozen,
   verberg,
   bestemming,
+  opname,
   children,
 }: {
+  opname?: boolean;
   s: Strip;
   gekozen?: boolean;
   verberg: (sleutel: string) => void;
@@ -206,6 +214,7 @@ function Kaart({
         "strip" +
         (bestemming ? " strip-uit" : s.kanalen.length > 1 ? " strip-stereo" : "") +
         (gekozen ? " gekozen" : "") +
+        (opname ? " opname" : "") +
         (s.stil || gemute ? " strip-stil" : "")
       }
     >

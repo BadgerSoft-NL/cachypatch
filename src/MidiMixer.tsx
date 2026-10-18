@@ -4,11 +4,13 @@
 // "Back to auto": wat er ligt, heb jij gelegd.
 
 import type { ReactNode } from "react";
-import { ontkoppel, verbind, type Graaf, type Kabel, type Poort } from "./api";
+import { isBus, ontkoppel, verbind, type Graaf, type Kabel, type Poort } from "./api";
 import { midiDing, poortLabel } from "./indeling";
 import { MidiBlok } from "./MidiMeter";
 
 export interface MidiStrip {
+  /** De Rec bus: daar wordt een .mid van gemaakt. */
+  bus: boolean;
   sleutel: string;
   poort: Poort;
   naam: string;
@@ -38,11 +40,13 @@ export function bouwMidiMixer(g: Graaf): MidiMixerModel {
     for (const { ding } of dingen) perDing.set(ding.sleutel, (perDing.get(ding.sleutel) ?? 0) + 1);
     return dingen
       .map(({ p, ding }) => ({
+        bus: isBus(knopen.get(p.knoop)!),
         sleutel: `midi|${ding.sleutel}|${p.naam}`,
         poort: p,
         naam: ding.titel,
-        onder:
-          (ding.isApp ? "app" : "device") +
+        onder: isBus(knopen.get(p.knoop)!)
+          ? "CachyPatch · .mid"
+          : (ding.isApp ? "app" : "device") +
           ((perDing.get(ding.sleutel) ?? 0) > 1 ? ` · ${poortLabel(p, "midi")}` : ""),
       }))
       .sort((a, b) => a.naam.localeCompare(b.naam) || a.onder.localeCompare(b.onder));
@@ -62,7 +66,9 @@ export function MidiMixer({
   kiesBewerkt,
   verborgen,
   verberg,
+  opnemen,
 }: {
+  opnemen: boolean;
   model: MidiMixerModel;
   bewerkt: MidiStrip | null;
   kiesBewerkt: (sleutel: string) => void;
@@ -109,8 +115,9 @@ export function MidiMixer({
           {model.bestemmingen.filter(zichtbaar).map((d) => {
             const gekozen = bewerkt?.sleutel === d.sleutel;
             const van = model.bronnen.filter((b) => model.route(b, d));
+            const neemtOp = opnemen && d.bus;
             return (
-              <Kaart key={d.sleutel} s={d} verberg={verberg} gekozen={gekozen}>
+              <Kaart key={d.sleutel} s={d} verberg={verberg} gekozen={gekozen} opname={neemtOp}>
                 <button
                   className={`kies${gekozen ? " aan" : ""}`}
                   aria-pressed={gekozen}
@@ -118,7 +125,10 @@ export function MidiMixer({
                 >
                   {gekozen ? "editing" : "edit"}
                 </button>
-                <div className="regel">{van.length === 1 ? "1 source" : `${van.length} sources`}</div>
+                <div className={`regel${neemtOp ? " rood" : ""}`}>
+                  {neemtOp ? "● rec · " : ""}
+                  {van.length === 1 ? "1 source" : `${van.length} sources`}
+                </div>
                 <MidiBlok poorten={van.map((b) => b.poort.id)} bestemming />
               </Kaart>
             );
@@ -134,15 +144,17 @@ function Kaart({
   s,
   gekozen,
   verberg,
+  opname,
   children,
 }: {
+  opname?: boolean;
   s: MidiStrip;
   gekozen?: boolean;
   verberg: (sleutel: string) => void;
   children: ReactNode;
 }) {
   return (
-    <article className={`strip strip-midi${gekozen ? " gekozen" : ""}`}>
+    <article className={`strip strip-midi${gekozen ? " gekozen" : ""}${opname ? " opname" : ""}`}>
       <div className="strip-kop" title={`${s.naam} — ${s.onder}`}>
         <div className="naam">{s.naam}</div>
         <div className="strip-onder">{s.onder}</div>

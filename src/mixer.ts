@@ -8,6 +8,7 @@
 // in stereoparen geknipt, zodat "Out 3/4" een eigen bestemming is.
 
 import {
+  isBus,
   ontkoppel,
   verbind,
   zetDoel,
@@ -16,7 +17,7 @@ import {
   type Knoop,
   type Poort,
 } from "./api";
-import { apparaatTitel, poortLabel } from "./indeling";
+import { apparaatTitel, appNaam, poortLabel } from "./indeling";
 
 export type Rij = "apps" | "hardware" | "bestemmingen";
 
@@ -79,8 +80,12 @@ export function bouwMixer(g: Graaf): Mixer {
     const ins = ps.filter((p) => p.ingang).sort(volg);
     const stil = k.stand !== "running";
 
+    if (isBus(k)) {
+      bestemmingen.push(strip(k, ins, ins.map((_, i) => i), "bestemmingen", "Rec bus", "CachyPatch", false, false));
+      continue;
+    }
     if (klasse.startsWith("Stream/")) {
-      const naam = k.app ?? k.beschrijving ?? k.naam;
+      const naam = appNaam(k);
       const onder = (k.media && k.media !== naam ? k.media : null) ?? (stil ? "silent" : "stereo");
       if (uit.length)
         apps.push(strip(k, uit, uit.map((_, i) => i), "apps", naam, onder, true, stil));
@@ -101,9 +106,11 @@ export function bouwMixer(g: Graaf): Mixer {
   const hw = (a: Strip, b: Strip) =>
     a.onder.localeCompare(b.onder) || a.knoop.id - b.knoop.id || a.kanalen[0] - b.kanalen[0];
   hardware.sort(hw);
+  // Hardware, dan de Rec bus, dan apps die opnemen.
   bestemmingen.sort((a, b) => {
-    const appA = a.knoop.klasse?.startsWith("Stream/") ? 1 : 0;
-    const appB = b.knoop.klasse?.startsWith("Stream/") ? 1 : 0;
+    const soort = (s: Strip) => (isBus(s.knoop) ? 1 : s.knoop.klasse?.startsWith("Stream/") ? 2 : 0);
+    const appA = soort(a);
+    const appB = soort(b);
     return appA - appB || (appA ? opNaam(a, b) : hw(a, b));
   });
   uniek([...apps, ...hardware, ...bestemmingen]);
@@ -118,7 +125,9 @@ export function bouwMixer(g: Graaf): Mixer {
       liggen.length === moet.length &&
       moet.every(([s, d]) => liggen.some((k) => k.uit_poort === s && k.in_poort === d));
     if (!zelfde) return { stand: { soort: "aangepast", uitleg: beschrijf(liggen, audio) }, kabels: liggen };
+    // Naar de Rec bus route je altijd zelf; dat is geen afwijking.
     const handmatig =
+      !isBus(best.knoop) &&
       liggen.some((k) => k.client === null || !wp.has(k.client)) ||
       bron.knoop.doel !== null ||
       best.knoop.doel !== null;
@@ -126,7 +135,11 @@ export function bouwMixer(g: Graaf): Mixer {
   };
 
   // Handwerk: links die WirePlumber niet legde, en streams met een doel.
-  const handKabels = kabels.filter((k) => k.client === null || !wp.has(k.client));
+  // Links naar de Rec bus horen bij de opname, niet bij WirePlumber.
+  const busIds = new Set(g.knopen.filter(isBus).map((k) => k.id));
+  const handKabels = kabels.filter(
+    (k) => (k.client === null || !wp.has(k.client)) && !busIds.has(k.in_knoop),
+  );
   const streams = g.knopen.filter((k) => (k.klasse ?? "").startsWith("Stream/") && perKnoop.has(k.id));
   const doelen = streams.filter((k) => k.doel !== null).map((k) => k.id);
   const geraakt = new Set(handKabels.flatMap((k) => [k.uit_knoop, k.in_knoop]));
@@ -239,7 +252,7 @@ export function schakel(m: Mixer, g: Graaf, bron: Strip, best: Strip) {
   const bronUit = poortenVan(bron.knoop, false);
   const bestIn = poortenVan(best.knoop, true);
   const bronStream = (bron.knoop.klasse ?? "").startsWith("Stream/Output");
-  const bestStream = (best.knoop.klasse ?? "").startsWith("Stream/Input");
+  const bestStream = (best.knoop.klasse ?? "").startsWith("Stream/Input") && !isBus(best.knoop);
   if (bronStream && best.doelbaar && best.knoop.serial !== null) {
     if (!g.kabels.some((k) => bronUit.has(k.uit_poort))) {
       zetDoel(bron.knoop.id, String(best.knoop.serial));

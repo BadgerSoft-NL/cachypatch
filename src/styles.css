@@ -1011,3 +1011,143 @@ button:disabled {
 .soortbalk span {
   padding: 0 4px;
 }
+
+/* ------------------------------------------------------------ transport */
+
+.transport {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 18px;
+  padding: 6px 14px;
+  background: #13151a;
+  border-bottom: 1px solid #000;
+  flex: none;
+}
+
+.opneem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border: 1px solid #5a2a2c;
+  border-radius: 4px;
+  background: var(--strip);
+  color: #ff7a7e;
+  font-weight: 700;
+}
+
+.opneem .rondje {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.opneem.bezig {
+  border-color: var(--rood);
+  background: var(--rood);
+  color: #fff;
+}
+
+.opneem.bezig .rondje {
+  border-radius: 1px;
+}
+
+.tijd-vak {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.tijd {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--zacht);
+  font-variant-numeric: tabular-nums;
+}
+
+.tijd.bezig {
+  color: #ff7a7e;
+}
+
+.map {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--zachter);
+}
+
+.groep {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 14px;
+  border-left: 1px solid #2a2e36;
+}
+
+.groep .label {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--zachter);
+}
+
+.groep .mono {
+  font-size: 10px;
+}
+
+.vinkje {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+
+.vinkje input {
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+.groep select {
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 6px;
+  background: var(--strip);
+  color: var(--tekst);
+  border: 1px solid var(--strip-rand);
+  border-radius: 4px;
+}
+
+.bpm {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 15px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.lock {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  background: #2a2116;
+  color: var(--mute);
+}
+
+.lock.aan {
+  background: #1f3a28;
+  color: #6fe394;
+}
+
+.fout {
+  color: var(--rood);
+}
+
+.strip.opname {
+  border-color: var(--rood);
+  box-shadow: 0 0 0 1px var(--rood) inset;
+}
+
+.regel.rood {
+  color: #ff7a7e;
+}
