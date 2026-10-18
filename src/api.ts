@@ -19,6 +19,11 @@ export interface Knoop {
   app: string | null;
   media: string | null;
   stand: "running" | "idle" | "suspended" | "creating" | "error" | null;
+  /** `target.object`: waar de stream heen is verplaatst. `null` = WirePlumber kiest. */
+  doel: string | null;
+  /** Volume per kanaal, lineair (1 = 0 dB). */
+  volume: number[] | null;
+  mute: boolean | null;
 }
 
 export interface Poort {
@@ -41,6 +46,8 @@ export interface Kabel {
   uit_poort: number;
   in_knoop: number;
   in_poort: number;
+  /** De client die hem legde; een van `Graaf.wireplumber` = beleid. */
+  client: number | null;
 }
 
 export interface Graaf {
@@ -49,6 +56,7 @@ export interface Graaf {
   quantum: number | null;
   standaard_sink: string | null;
   standaard_bron: string | null;
+  wireplumber: number[];
   knopen: Knoop[];
   poorten: Poort[];
   kabels: Kabel[];
@@ -60,6 +68,7 @@ export const LEEG: Graaf = {
   quantum: null,
   standaard_sink: null,
   standaard_bron: null,
+  wireplumber: [],
   knopen: [],
   poorten: [],
   kabels: [],
@@ -70,17 +79,22 @@ const inTauri = "__TAURI_INTERNALS__" in window;
 /** Roept `bij` aan met de huidige graph en daarna met elke verandering. */
 export function volgGraaf(bij: (g: Graaf) => void): () => void {
   if (!inTauri) {
+    nepVolger = bij;
     // ?graaf=/pad/naar.json laadt een echte momentopname, zoals
     // `cargo run --example graaf` die schrijft.
     const bestand = new URLSearchParams(location.search).get("graaf");
     if (bestand) {
       fetch(bestand)
         .then((r) => r.json())
-        .then(bij);
+        .then((g: Graaf) => {
+          nep = g;
+          bij(g);
+        });
     } else {
-      bij(nepGraaf());
+      nep = nepGraaf();
+      bij(nep);
     }
-    return () => {};
+    return () => (nepVolger = undefined);
   }
   let weg = false;
   let stop: (() => void) | undefined;
@@ -95,6 +109,97 @@ export function volgGraaf(bij: (g: Graaf) => void): () => void {
     weg = true;
     stop?.();
   };
+}
+
+/** Een link van een uitgangspoort naar een ingangspoort. Blijft na sluiten. */
+export function verbind(uit: number, naar: number) {
+  if (inTauri) invoke("verbind", { uit, naar });
+  else nepVerbind(uit, naar);
+}
+
+export function ontkoppel(kabels: number[]) {
+  if (kabels.length === 0) return;
+  if (inTauri) invoke("ontkoppel", { kabels });
+  else nepWijzig((g) => (g.kabels = g.kabels.filter((k) => !kabels.includes(k.id))));
+}
+
+/**
+ * Laat WirePlumber de stream naar `doel` (een serial) verplaatsen, of met
+ * `null` het doel wissen. Alleen wissen laat een losgekoppelde stream los
+ * staan; `"-1"` dwingt hem terug naar de standaard. Zie CLAUDE.md.
+ */
+export function zetDoel(knoop: number, doel: string | null) {
+  if (inTauri) invoke("zet_doel", { knoop, doel });
+  else nepDoel(knoop, doel);
+}
+
+export function zetVolume(knoop: number, volume: number[]) {
+  if (inTauri) invoke("zet_volume", { knoop, volume });
+  else nepWijzig((g) => {
+    const k = g.knopen.find((k) => k.id === knoop);
+    if (k) k.volume = volume;
+  });
+}
+
+export function zetMute(knoop: number, mute: boolean) {
+  if (inTauri) invoke("zet_mute", { knoop, mute });
+  else nepWijzig((g) => {
+    const k = g.knopen.find((k) => k.id === knoop);
+    if (k) k.mute = mute;
+  });
+}
+
+// --- Zonder Tauri: een nagemaakte graph met een nagebootste WirePlumber ---
+
+let nep: Graaf = LEEG;
+let nepVolger: ((g: Graaf) => void) | undefined;
+const WP = 33;
+const WIJ = 999;
+let nepId = 10_000;
+
+function nepWijzig(f: (g: Graaf) => void) {
+  const g: Graaf = structuredClone(nep);
+  f(g);
+  nep = g;
+  // Zoals de echte draad: even later, niet midden in de klik.
+  setTimeout(() => nepVolger?.(nep), 30);
+}
+
+function nepVerbind(uit: number, naar: number, client = WIJ) {
+  nepWijzig((g) => {
+    const a = g.poorten.find((p) => p.id === uit);
+    const b = g.poorten.find((p) => p.id === naar);
+    if (!a || !b) return;
+    if (g.kabels.some((k) => k.uit_poort === uit && k.in_poort === naar)) return;
+    g.kabels.push({ id: nepId++, uit_knoop: a.knoop, uit_poort: uit, in_knoop: b.knoop, in_poort: naar, client });
+  });
+}
+
+/** Wat WirePlumber doet bij een nieuw `target.object`: zijn eigen links van
+ *  die stream weghalen en naar het doel (of de standaard) leggen. */
+function nepDoel(knoop: number, doel: string | null) {
+  nepWijzig((g) => {
+    const k = g.knopen.find((k) => k.id === knoop);
+    if (!k) return;
+    k.doel = doel === "-1" ? "-1" : doel;
+    if (doel === null) return; // alleen wissen: WirePlumber doet niets
+    if (doel === "-1") k.doel = null;
+    const uitgang = (k.klasse ?? "").startsWith("Stream/Output");
+    const naam = doel === "-1" ? (uitgang ? g.standaard_sink : g.standaard_bron) : null;
+    const d = g.knopen.find((n) => (naam ? n.naam === naam : String(n.serial) === doel));
+    g.kabels = g.kabels.filter(
+      (c) => !(c.client === WP && (uitgang ? c.uit_knoop : c.in_knoop) === knoop),
+    );
+    if (!d) return;
+    const eigen = g.poorten.filter((p) => p.knoop === knoop && p.ingang !== uitgang && !p.monitor);
+    const ander = g.poorten.filter((p) => p.knoop === d.id && p.ingang === uitgang && !p.monitor && p.soort === "audio");
+    eigen.forEach((p, i) => {
+      const q = ander.find((q) => q.kanaal === p.kanaal) ?? ander[i];
+      if (!q) return;
+      const [uit, naar] = uitgang ? [p, q] : [q, p];
+      g.kabels.push({ id: nepId++, uit_knoop: uit.knoop, uit_poort: uit.id, in_knoop: naar.knoop, in_poort: naar.id, client: WP });
+    });
+  });
 }
 
 // --- De nagemaakte graph, ongeveer die van de ontwerpschermen ---
@@ -116,6 +221,9 @@ function nepGraaf(): Graaf {
       app: null,
       media: null,
       stand: "running",
+      doel: null,
+      volume: [1, 1],
+      mute: false,
       ...k,
     };
     n.serial = n.id;
@@ -140,13 +248,14 @@ function nepGraaf(): Graaf {
     poorten.push(r);
     return r;
   };
-  const kabel = (uit: Poort, naar: Poort) =>
+  const kabel = (uit: Poort, naar: Poort, client = WP) =>
     kabels.push({
       id: id++,
       uit_knoop: uit.knoop,
       uit_poort: uit.id,
       in_knoop: naar.knoop,
       in_poort: naar.id,
+      client,
     });
   const stereo = (k: Knoop, voor: string, ingang: boolean) =>
     ["FL", "FR"].map((c) => poort(k, `${voor}_${c}`, ingang, { kanaal: c }));
@@ -194,11 +303,18 @@ function nepGraaf(): Graaf {
   const dcMic = poort(discordMic, "input_MONO", true, { kanaal: "MONO" });
 
   spUit.forEach((p, i) => kabel(p, ffOut[i]));
-  spUit.forEach((p, i) => kabel(p, recIn[i]));
+  spUit.forEach((p, i) => kabel(p, recIn[i], WIJ));
   ffxUit.forEach((p, i) => kabel(p, ffOut[i]));
   mpvUit.forEach((p, i) => kabel(p, hdmiIn[i]));
+  mpv.doel = String(hdmi.serial);
+  firefox.volume = [0.5, 0.5];
+  discord.volume = [0.71, 0.71];
   dcUit.forEach((p, i) => kabel(p, ffOut[i]));
   kabel(ffCap[0], dcMic);
+  // Een patch die de mixer niet kan tonen: alleen links naar Out 3.
+  const webcam = knoop({ naam: "alsa_input.usb-webcam", beschrijving: "Webcam", klasse: "Audio/Source", apparaat: 50, stand: "idle" });
+  poort(webcam, "capture_MONO", false, { kanaal: "MONO", fysiek: true });
+  kabel(ffCap[1], ffOut[2], WIJ);
 
   // MIDI: alle ALSA-apparaten en -apps zitten samen in de Midi-Bridge.
   const bridge = knoop({ naam: "Midi-Bridge", klasse: "Midi/Bridge" });
@@ -218,10 +334,17 @@ function nepGraaf(): Graaf {
   const vkbdUit = midi("out", "Virtual Keyboard", 131, false);
   const surge = knoop({ naam: "Surge XT", app: "Surge XT", klasse: "Midi/Sink" });
   const surgeIn = poort(surge, "in", true, { soort: "midi" });
-  kabel(fpUit, surgeIn);
-  kabel(fpUit, tutorIn);
-  kabel(vkbdUit, surgeIn);
-  kabel(tutorUit, fpIn);
+  kabel(fpUit, surgeIn, WIJ);
+  kabel(fpUit, tutorIn, WIJ);
+  kabel(vkbdUit, surgeIn, WIJ);
+  kabel(tutorUit, fpIn, WIJ);
+
+  // Eén volume per kanaal, zoals een echte node dat meldt.
+  for (const k of knopen) {
+    const n = poorten.filter((p) => p.knoop === k.id && p.soort === "audio" && !p.monitor).length;
+    const v = k.volume?.[0] ?? 1;
+    k.volume = n ? Array(n).fill(v) : null;
+  }
 
   return {
     verbonden: true,
@@ -229,6 +352,7 @@ function nepGraaf(): Graaf {
     quantum: 256,
     standaard_sink: ff,
     standaard_bron: ffIn.naam,
+    wireplumber: [WP],
     knopen,
     poorten,
     kabels,

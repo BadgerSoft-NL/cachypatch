@@ -1,5 +1,5 @@
 // Van de kale graph naar wat de patchbay toont: welke modules er zijn, in
-// welke kolom en onder welk kopje. Links staat alles wat levert, rechts alles
+// welke kolom en in welke groep. Links staat alles wat levert, rechts alles
 // wat ontvangt. Een node met in- én uitgangen wordt twee modules, net als
 // PipeWire er voor een app die afspeelt en opneemt twee nodes van maakt.
 //
@@ -53,7 +53,7 @@ export interface Indeling {
   verborgen: string[];
 }
 
-/** De volgorde van de kopjes, per kant. */
+/** De volgorde van de groepen, per kant. De titels zijn alleen intern. */
 const VOLGORDE: Record<Soort, string[]> = {
   audio: [
     "Apps · playing",
@@ -260,13 +260,13 @@ function midiApparaat(p: Poort): string {
   return (uitAlias || uitNaam).trim();
 }
 
-function apparaatTitel(k: Knoop): string {
+export function apparaatTitel(k: Knoop): string {
   const b = k.beschrijving;
   if (b && b.length <= 28) return b;
   return k.bijnaam ?? b ?? k.naam;
 }
 
-function poortLabel(p: Poort, soort: Soort): string {
+export function poortLabel(p: Poort, soort: Soort): string {
   if (soort === "midi") {
     const kaal = p.naam.replace(/ \((capture|playback)\)$/, "");
     return kaal.includes(": ") ? kaal.split(": ").slice(1).join(": ") : kaal;

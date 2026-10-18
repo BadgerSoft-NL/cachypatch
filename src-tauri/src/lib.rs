@@ -2,11 +2,40 @@ pub mod graaf;
 
 use tauri::{Emitter, Manager, State};
 
-use graaf::{Graaf, Momentopname};
+use graaf::{Graaf, Momentopname, Opdracht};
 
 #[tauri::command]
 fn haal_graaf(g: State<Graaf>) -> Momentopname {
     g.nu()
+}
+
+#[tauri::command]
+fn verbind(g: State<Graaf>, uit: u32, naar: u32) {
+    g.doe(Opdracht::Verbind { uit, naar });
+}
+
+#[tauri::command]
+fn ontkoppel(g: State<Graaf>, kabels: Vec<u32>) {
+    for kabel in kabels {
+        g.doe(Opdracht::Ontkoppel { kabel });
+    }
+}
+
+/// `doel` is een serial, of `null` om het aan WirePlumber terug te geven.
+#[tauri::command]
+fn zet_doel(g: State<Graaf>, knoop: u32, doel: Option<String>) {
+    g.doe(Opdracht::ZetDoel { knoop, doel });
+}
+
+#[tauri::command]
+fn zet_volume(g: State<Graaf>, knoop: u32, volume: Vec<f32>) {
+    let volume = volume.into_iter().map(|v| v.clamp(0.0, 4.0)).collect();
+    g.doe(Opdracht::ZetVolume { knoop, volume });
+}
+
+#[tauri::command]
+fn zet_mute(g: State<Graaf>, knoop: u32, mute: bool) {
+    g.doe(Opdracht::ZetMute { knoop, mute });
 }
 
 pub fn run() {
@@ -24,7 +53,14 @@ pub fn run() {
             })));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![haal_graaf])
+        .invoke_handler(tauri::generate_handler![
+            haal_graaf,
+            verbind,
+            ontkoppel,
+            zet_doel,
+            zet_volume,
+            zet_mute,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
