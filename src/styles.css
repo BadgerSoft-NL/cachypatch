@@ -679,3 +679,208 @@ button {
   opacity: 0.4;
   cursor: default;
 }
+
+/* --- Meters --- */
+
+.meters {
+  display: flex;
+  gap: 2px;
+  padding: 9px 0;
+}
+
+.meter {
+  position: relative;
+  width: 4px;
+  height: 100%;
+  background: #0b0c0d;
+  overflow: hidden;
+}
+
+.meter.klein {
+  height: 20px;
+}
+
+.meter-vul {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0;
+  background: var(--groen);
+}
+
+.meter-vul.vol {
+  background: var(--rood);
+}
+
+.meter-piek {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  margin-bottom: -1px;
+  background: #6fe394;
+  opacity: 0;
+}
+
+.mini-meters {
+  display: flex;
+  gap: 2px;
+}
+
+.fader-vak {
+  gap: 10px;
+}
+
+/* --- MIDI --- */
+
+.strip.midi {
+  width: 140px;
+}
+
+.led {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+  background: #2a2f34;
+}
+
+.led.aan {
+  background: var(--groen);
+  box-shadow: 0 0 8px var(--groen);
+}
+
+.midi-blok {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 6px;
+  background: var(--balk);
+  border-radius: 4px;
+}
+
+.midi-kop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+}
+
+.kanaalraster,
+.soortraster {
+  display: grid;
+  gap: 3px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9px;
+  text-align: center;
+}
+
+.kanaalraster {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.kanaalraster span {
+  line-height: 16px;
+  border-radius: 2px;
+  background: #22262a;
+  color: #5a6168;
+}
+
+.kanaalraster span.aan {
+  background: var(--groen);
+  color: #0d1a12;
+  font-weight: 700;
+}
+
+.soortraster {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.soortraster span,
+.soortbalk span {
+  line-height: 16px;
+  border-radius: 3px;
+  border: 1px solid #2a2f34;
+  color: #5a6168;
+}
+
+.soortraster span.aan,
+.soortbalk span.aan {
+  border-color: #1f3a28;
+  background: #1f3a28;
+  color: #6fe394;
+}
+
+.midi-laatste {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  color: #c9cdd1;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.poorten li.midi {
+  height: 56px;
+  align-items: flex-start;
+  padding-top: 8px;
+}
+
+.poorten li.midi .stip {
+  top: 11px;
+}
+
+.midi-regel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.regel-boven,
+.regel-onder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.regel-boven .midi-laatste {
+  text-align: right;
+  font-size: 11px;
+}
+
+.poortnaam {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+}
+
+.kanaalbalk {
+  display: flex;
+  gap: 2px;
+}
+
+.kanaalbalk span {
+  width: 8px;
+  height: 8px;
+  border-radius: 1px;
+  background: #2a2f34;
+}
+
+.kanaalbalk span.aan {
+  background: var(--groen);
+}
+
+.soortbalk {
+  display: flex;
+  gap: 3px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9px;
+  text-align: center;
+}
+
+.soortbalk span {
+  padding: 0 4px;
+}

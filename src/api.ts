@@ -332,6 +332,7 @@ function nepGraaf(): Graaf {
   const tutorUit = midi("out", "Composition Tutor", 130, false);
   const tutorIn = midi("in", "Composition Tutor", 130, true);
   const vkbdUit = midi("out", "Virtual Keyboard", 131, false);
+  midi("MIDI 1", "Launchkey", 28, false);
   const surge = knoop({ naam: "Surge XT", app: "Surge XT", klasse: "Midi/Sink" });
   const surgeIn = poort(surge, "in", true, { soort: "midi" });
   kabel(fpUit, surgeIn, WIJ);

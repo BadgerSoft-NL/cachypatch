@@ -13,10 +13,16 @@ import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ontkoppel, verbind } from "./api";
 import type { Indeling, Module } from "./indeling";
 import { IcoonTegel } from "./iconen";
+import { MeterBalk } from "./Meter";
+import { MidiRegel } from "./MidiMeter";
 
-export const BREEDTE = 280;
 const KOP = 45; // 44 + de rand eronder
-const RIJ = 28;
+// MIDI-modules zijn breder en hoger: elke poort heeft een eigen meterregel.
+const MAAT = {
+  audio: { breedte: 280, rij: 28, stip: 14 },
+  midi: { breedte: 340, rij: 56, stip: 17 },
+  anders: { breedte: 280, rij: 28, stip: 14 },
+};
 const BINNEN = 4;
 const RAND = 1;
 const TUSSEN = 13;
@@ -32,8 +38,10 @@ export type Plekken = Record<string, { x: number; y: number }>;
 // De laatst aangeraakte module ligt bovenop.
 let bovenste = 1;
 
-const hoogte = (m: Module) => RAND + KOP + BINNEN + RIJ * m.poorten.length + BINNEN + RAND;
-const poortY = (i: number) => RAND + KOP + BINNEN + RIJ * i + RIJ / 2;
+const hoogte = (m: Module) =>
+  RAND + KOP + BINNEN + MAAT[m.soort].rij * m.poorten.length + BINNEN + RAND;
+const poortY = (m: Module, i: number) => RAND + KOP + BINNEN + MAAT[m.soort].rij * i + MAAT[m.soort].stip;
+const breedte = (m: Module) => MAAT[m.soort].breedte;
 
 export function Patchbay({
   indeling,
@@ -46,7 +54,7 @@ export function Patchbay({
 }) {
   const vlak = useRef<HTMLDivElement>(null);
   const tekenvlak = useRef<HTMLDivElement>(null);
-  const [breedte, setBreedte] = useState(1200);
+  const [vlakBreedte, setBreedte] = useState(1200);
   const [boven, setBoven] = useState<number | null>(null);
   // Een kabel in de maak: van welke poort, en waar de muis nu is.
   const [trek, setTrek] = useState<{ van: number; ingang: boolean; x: number; y: number } | null>(
@@ -64,7 +72,8 @@ export function Patchbay({
 
   // De beginindeling: twee kolommen, per soort onder elkaar.
   const begin = useMemo(() => {
-    const rechtsX = Math.max(MARGE + BREEDTE + MIN_MIDDEN, breedte - MARGE - BREEDTE);
+    const kolom = Math.max(280, ...indeling.groepen.flatMap((g) => g.modules.map(breedte)));
+    const rechtsX = Math.max(MARGE + kolom + MIN_MIDDEN, vlakBreedte - MARGE - kolom);
     const y = { links: BOVEN, rechts: BOVEN };
     const begin: Plekken = {};
     for (const g of indeling.groepen) {
@@ -76,7 +85,7 @@ export function Patchbay({
       y[g.kant] += NA_GROEP - TUSSEN;
     }
     return begin;
-  }, [indeling, breedte]);
+  }, [indeling, vlakBreedte]);
 
   const modules = indeling.groepen.flatMap((g) => g.modules);
   const plek = (m: Module) => plekken[m.sleutel] ?? begin[m.sleutel];
@@ -86,7 +95,7 @@ export function Patchbay({
   for (const m of modules) {
     const p = plek(m);
     m.poorten.forEach((r, i) =>
-      stippen.set(r.id, { x: m.kant === "links" ? p.x + BREEDTE : p.x, y: p.y + poortY(i) }),
+      stippen.set(r.id, { x: m.kant === "links" ? p.x + breedte(m) : p.x, y: p.y + poortY(m, i) }),
     );
   }
 
@@ -94,7 +103,11 @@ export function Patchbay({
     400,
     ...modules.map((m) => plek(m).y + hoogte(m) + 40),
   );
-  const rechterkant = Math.max(breedte, ...modules.map((m) => plek(m).x + BREEDTE + MARGE));
+  const rechterkant = Math.max(vlakBreedte, ...modules.map((m) => plek(m).x + breedte(m) + MARGE));
+
+  // Wat er bij een ingang binnenkomt: de uitgangen die erheen gaan.
+  const bronnen = (poort: number) =>
+    indeling.kabels.filter((k) => k.in === poort).map((k) => k.uit);
 
   const binnen = (e: { clientX: number; clientY: number }) => {
     const r = tekenvlak.current!.getBoundingClientRect();
@@ -171,7 +184,14 @@ export function Patchbay({
           )}
         </svg>
         {modules.map((m) => (
-          <ModuleKaart key={m.sleutel} m={m} plek={plek(m)} zetPlek={zetPlek} pak={pak} />
+          <ModuleKaart
+            key={m.sleutel}
+            m={m}
+            plek={plek(m)}
+            zetPlek={zetPlek}
+            pak={pak}
+            bronnen={bronnen}
+          />
         ))}
       </div>
     </div>
@@ -183,11 +203,13 @@ function ModuleKaart({
   plek,
   zetPlek,
   pak,
+  bronnen,
 }: {
   m: Module;
   plek: { x: number; y: number };
   zetPlek: (sleutel: string, plek: { x: number; y: number }) => void;
   pak: (e: React.PointerEvent, poort: number, ingang: boolean) => void;
+  bronnen: (poort: number) => number[];
 }) {
   const sleep = useRef<{ dx: number; dy: number } | null>(null);
   const [sleept, setSleept] = useState(false);
@@ -196,7 +218,7 @@ function ModuleKaart({
   return (
     <section
       className={`module${m.stil ? " stil" : ""}${sleept ? " sleept" : ""}`}
-      style={{ left: plek.x, top: plek.y, width: BREEDTE, zIndex: laag }}
+      style={{ left: plek.x, top: plek.y, width: breedte(m), zIndex: laag }}
       aria-label={m.titel}
     >
       <header
@@ -225,11 +247,26 @@ function ModuleKaart({
           <div className="titel">{m.titel}</div>
           <div className="onder">{m.onder}</div>
         </div>
+        {m.meter.length > 0 && (
+          <div className="mini-meters">
+            {m.meter.map((k, i) => (
+              <MeterBalk key={i} knoop={m.knoop} kanalen={k} klein />
+            ))}
+          </div>
+        )}
       </header>
       <ul className="poorten">
         {m.poorten.map((p) => (
-          <li key={p.id} className={m.kant}>
-            {p.label}
+          <li key={p.id} className={`${m.kant} ${m.soort}`}>
+            {m.soort === "midi" ? (
+              <MidiRegel
+                poort={m.kant === "rechts" ? bronnen(p.id) : [p.id]}
+                label={p.label}
+                ingang={m.kant === "rechts"}
+              />
+            ) : (
+              p.label
+            )}
             <span
               className={`stip${p.verbonden ? " vol" : ""}`}
               data-poort={p.id}

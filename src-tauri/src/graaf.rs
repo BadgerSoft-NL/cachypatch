@@ -19,7 +19,7 @@
 //! beslissen.
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -31,6 +31,9 @@ use pw::spa::pod::{Object, Pod, Property, Value, ValueArray};
 use pw::spa::utils::dict::DictRef;
 use pw::types::ObjectType;
 use serde::Serialize;
+
+use crate::meter::{self, Meter};
+use crate::midimeter::{self, Activiteit, MidiMeter};
 
 /// Wat PipeWire in `format.dsp` zet voor MIDI: oude bytes of UMP.
 const DSP_MIDI: &str = "8 bit raw midi";
@@ -140,8 +143,21 @@ pub struct Momentopname {
     pub kabels: Vec<Kabel>,
 }
 
-/// Wordt aangeroepen met elke nieuwe stand, vanaf de graph-draad.
-pub type Melder = Box<dyn Fn(&Momentopname) + Send + 'static>;
+/// Piek per kanaal sinds de vorige melding, lineair, per node-id. De
+/// kanalen staan in de volgorde van de poorten (`port.id`).
+pub type Pieken = BTreeMap<u32, Vec<f32>>;
+
+/// Wat de draad meldt: een nieuwe stand van de graph, of nieuwe pieken.
+/// Apart, want pieken komen 25 keer per seconde en de graph zelden.
+pub enum Melding<'a> {
+    Graaf(&'a Momentopname),
+    Pieken(&'a Pieken),
+    /// MIDI-activiteit per bronpoort (poort-id), sinds de vorige melding.
+    Midi(&'a BTreeMap<u32, Activiteit>),
+}
+
+/// Wordt aangeroepen vanaf de graph-draad.
+pub type Melder = Box<dyn Fn(Melding) + Send + 'static>;
 
 /// Wat de schil de graph kan laten doen. Alles op object-id: de schil werkt
 /// met de momentopname van zojuist, en een id die intussen weg is doet niets.
@@ -199,12 +215,17 @@ fn draad(
     mut rx: pw::channel::Receiver<Opdracht>,
 ) {
     pw::init();
-    let meld: Rc<dyn Fn(Momentopname)> = Rc::new(move |m: Momentopname| {
-        melder(&m);
-        *laatste.lock().unwrap() = m;
+    let melder = Rc::new(melder);
+    let meld: Rc<dyn Fn(Momentopname)> = Rc::new({
+        let melder = Rc::clone(&melder);
+        move |m: Momentopname| {
+            melder(Melding::Graaf(&m));
+            *laatste.lock().unwrap() = m;
+        }
     });
+    let overig: Rc<dyn Fn(Melding)> = Rc::new(move |m: Melding| melder(m));
     loop {
-        rx = match sessie(Rc::clone(&meld), rx) {
+        rx = match sessie(Rc::clone(&meld), Rc::clone(&overig), rx) {
             (Ok(()), rx) => rx,
             (Err(fout), rx) => {
                 eprintln!("cachypatch: PipeWire: {fout}");
@@ -235,6 +256,11 @@ struct Staat {
     /// Uit de `default`-metadata.
     standaard_sink: Option<String>,
     standaard_bron: Option<String>,
+    /// Onze eigen meter-nodes: die horen niet in de graph van de gebruiker.
+    eigen: BTreeSet<u32>,
+    /// De MIDI-meter-node en zijn poorten (`in_<bron>` → id), om te linken.
+    midi_knoop: Option<u32>,
+    midi_poorten: BTreeMap<String, u32>,
     /// Er is iets veranderd sinds de laatste melding.
     vuil: bool,
 }
@@ -272,6 +298,13 @@ impl Staat {
     fn global(&mut self, id: u32, soort: &ObjectType, props: &DictRef) {
         match soort {
             ObjectType::Node => {
+                if let Some(n) = props.get("node.name").filter(|n| n.starts_with(meter::VOORVOEGSEL)) {
+                    self.eigen.insert(id);
+                    if n == midimeter::NAAM {
+                        self.midi_knoop = Some(id);
+                    }
+                    return;
+                }
                 self.knopen.insert(
                     id,
                     Knoop {
@@ -295,6 +328,14 @@ impl Staat {
                 let Some(knoop) = getal(props, "node.id") else {
                     return;
                 };
+                if self.eigen.contains(&knoop) {
+                    if Some(knoop) == self.midi_knoop {
+                        if let Some(n) = tekst(props, "port.name") {
+                            self.midi_poorten.insert(n, id);
+                        }
+                    }
+                    return;
+                }
                 self.poorten.insert(
                     id,
                     Poort {
@@ -321,6 +362,9 @@ impl Staat {
                 ) else {
                     return;
                 };
+                if self.eigen.contains(&uit_knoop) || self.eigen.contains(&in_knoop) {
+                    return;
+                }
                 self.kabels.insert(
                     id,
                     Kabel {
@@ -348,6 +392,11 @@ impl Staat {
             | self.kabels.remove(&id).is_some()
             | self.clients.remove(&id).is_some()
             | self.doelen.remove(&id).is_some();
+        self.eigen.remove(&id);
+        if self.midi_knoop == Some(id) {
+            self.midi_knoop = None;
+        }
+        self.midi_poorten.retain(|_, p| *p != id);
         self.vuil |= was;
     }
 
@@ -411,6 +460,35 @@ impl Staat {
         self.vuil = true;
     }
 
+    /// Welke nodes een meter horen te hebben: id → (serial, is sink, kanalen).
+    fn meterbaar(&self) -> BTreeMap<u32, (u64, bool, Vec<String>)> {
+        let mut uit = BTreeMap::new();
+        for k in self.knopen.values() {
+            let klasse = k.klasse.as_deref().unwrap_or_default();
+            let sink = klasse.starts_with("Audio/Sink");
+            let ok = sink
+                || klasse == "Stream/Output/Audio"
+                || klasse.starts_with("Audio/Source")
+                || klasse == "Audio/Duplex";
+            let Some(serial) = k.serial.filter(|_| ok) else {
+                continue;
+            };
+            let mut ps: Vec<&Poort> = self
+                .poorten
+                .values()
+                .filter(|p| {
+                    p.knoop == k.id && p.soort == Soort::Audio && !p.monitor && p.ingang == sink
+                })
+                .collect();
+            ps.sort_by_key(|p| (p.volgnummer.unwrap_or(p.id), p.id));
+            let kanalen: Option<Vec<String>> = ps.iter().map(|p| p.kanaal.clone()).collect();
+            if let Some(kanalen) = kanalen.filter(|k| !k.is_empty()) {
+                uit.insert(k.id, (serial, sink, kanalen));
+            }
+        }
+        uit
+    }
+
     fn metadata(&mut self, metadata: &str, sleutel: &str, waarde: Option<&str>) {
         let getal = || waarde.and_then(|w| w.trim().parse::<u32>().ok()).filter(|&n| n > 0);
         match (metadata, sleutel) {
@@ -471,6 +549,7 @@ enum Binding {
 /// opdrachten terug, want die gaat mee naar de volgende sessie.
 fn sessie(
     meld: Rc<dyn Fn(Momentopname)>,
+    meld_overig: Rc<dyn Fn(Melding)>,
     rx: pw::channel::Receiver<Opdracht>,
 ) -> (Result<(), pw::Error>, pw::channel::Receiver<Opdracht>) {
     let opzet = || -> Result<_, pw::Error> {
@@ -516,6 +595,9 @@ fn sessie(
                     return;
                 };
                 staat.borrow_mut().global(g.id, &g.type_, props);
+                if staat.borrow().eigen.contains(&g.id) {
+                    return;
+                }
                 let Some(registry) = registry.upgrade() else {
                     return;
                 };
@@ -611,13 +693,54 @@ fn sessie(
         move |o| uitvoeren(o, &core, &registry, &bindingen.borrow(), &gelegd)
     });
 
+    // Eén meter per node die geluid maakt of ontvangt.
+    let meters: Rc<RefCell<BTreeMap<u32, Meter>>> = Rc::default();
+    // En één node die alle MIDI-uitgangen afluistert.
+    let midi = Rc::new(RefCell::new(MidiMeter::maak(&core)));
+
     let timer = mainloop.loop_().add_timer({
         let staat = Rc::clone(&staat);
+        let meters = Rc::clone(&meters);
+        let midi = Rc::clone(&midi);
+        let core = core.clone();
         move |_| {
+            if let Some(mm) = midi.borrow_mut().as_mut() {
+                let s = staat.borrow();
+                let bronnen: Vec<u32> = s
+                    .poorten
+                    .values()
+                    .filter(|p| p.soort == Soort::Midi && !p.ingang)
+                    .map(|p| p.id)
+                    .collect();
+                mm.stem_af(&core, &bronnen, s.midi_knoop, &s.midi_poorten);
+                let activiteit = mm.oogst();
+                if !activiteit.is_empty() {
+                    meld_overig(Melding::Midi(&activiteit));
+                }
+            }
             let mut s = staat.borrow_mut();
             if s.vuil {
                 s.vuil = false;
                 meld(s.momentopname());
+                // Meters bijwerken: weg wat weg is, nieuw wat nieuw is.
+                let moet = s.meterbaar();
+                drop(s);
+                let mut m = meters.borrow_mut();
+                m.retain(|id, meter| moet.get(id).is_some_and(|(_, _, k)| *k == meter.kanalen));
+                for (id, (serial, sink, kanalen)) in moet {
+                    if let std::collections::btree_map::Entry::Vacant(plek) = m.entry(id) {
+                        if let Some(meter) = meter::maak(&core, id, serial, sink, kanalen) {
+                            plek.insert(meter);
+                        }
+                    }
+                }
+            } else {
+                drop(s);
+            }
+            let m = meters.borrow();
+            if !m.is_empty() {
+                let pieken: Pieken = m.iter().map(|(id, meter)| (*id, meter.oogst())).collect();
+                meld_overig(Melding::Pieken(&pieken));
             }
         }
     });
@@ -627,6 +750,8 @@ fn sessie(
 
     mainloop.run();
     drop(timer);
+    meters.borrow_mut().clear();
+    midi.borrow_mut().take();
     (Ok(()), ontvanger.deattach())
 }
 

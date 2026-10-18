@@ -5,12 +5,14 @@
 use std::sync::mpsc;
 use std::time::Duration;
 
-use cachypatch_lib::graaf::Graaf;
+use cachypatch_lib::graaf::{Graaf, Melding};
 
 fn main() {
     let (tx, rx) = mpsc::channel();
     let _g = Graaf::start(Box::new(move |m| {
-        let _ = tx.send(m.clone());
+        if let Melding::Graaf(m) = m {
+            let _ = tx.send(m.clone());
+        }
     }));
     // De eerste melding na het verbinden is al compleet, maar de node-info
     // druppelt na; even wachten tot het stil is.
