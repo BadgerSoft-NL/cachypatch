@@ -5,12 +5,13 @@
 // De rec-bussen staan in een eigen vak tussen de bestemmingen, met de
 // koppelknop (stereo of twee mono) zoals in CachyMix. Hun fader en M werken op
 // de bus zelf; ● neemt die ene bus op, × haalt hem weg. Rechts ernaast Record
-// all (alle bussen met bronnen samen, sample-precies gelijk) en + Bus. Een
+// all (alle bussen met bronnen samen, sample-precies gelijk), + Bus en Folder
+// (de map van de laatste take, of ~/Recordings). Een
 // uitgang en een rec-bus kies je los van elkaar: de groene knop op een bron
 // gaat naar de uitgang, R ernaast naar de bus.
 
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
-import { startBus, startOpname, stopBus, stopOpname, zetVolume, type TransportStand } from "./api";
+import { openMap, startBus, startOpname, stopBus, stopOpname, zetVolume, type TransportStand } from "./api";
 import {
   busErbij,
   standVan,
@@ -169,6 +170,13 @@ export function Mixer({
                 </button>
                 <button className="knop" title="Add a stereo Rec bus" onClick={() => zetBusConfig(busErbij)}>
                   + Bus
+                </button>
+                <button
+                  className="knop map-open"
+                  title={`Open ${transport.map ?? "~/Recordings"} in the file manager`}
+                  onClick={() => openMap(transport.map)}
+                >
+                  Folder
                 </button>
               </div>
             </div>,

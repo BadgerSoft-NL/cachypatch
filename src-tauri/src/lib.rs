@@ -56,6 +56,12 @@ fn stop_opname(g: State<Graaf>) {
     g.doe(Opdracht::Stop);
 }
 
+/// Opent de map van een take, of `~/Recordings`.
+#[tauri::command]
+fn open_map(map: Option<String>) -> Result<(), String> {
+    opname::open_map(map.as_deref()).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn start_bus(g: State<Graaf>, bus: BusOpname) {
     g.doe(Opdracht::StartBus(bus));
@@ -110,6 +116,7 @@ pub fn run() {
             stop_opname,
             start_bus,
             stop_bus,
+            open_map,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -45,7 +45,9 @@ Concept en ontwerp staan in Nokta (`CachyPatch.nokta`, notities **Concept** en
   stopt met zijn laatste bus. Een bus die al opneemt, doet niet nog eens mee.
   De schrijfdraad (`hound`, 32-bit float) en klok/MIDI-bestand (`midly`,
   type 1, 480 PPQ); MIDI per bronpoort uit de MIDI-meter, alleen bij Record
-  all. Uitvoer in `~/Recordings/JJJJ-MM-DD_UUMM/` (met volgnummer). Externe
+  all. Uitvoer in `~/Recordings/JJJJ-MM-DD_UUMM/` (met volgnummer); de knop
+  Folder opent de map van de laatste take met `xdg-open` (`open_map`, alleen
+  binnen `~/Recordings`, anders die map zelf). Externe
   klok: pulsen tellen (24 ppq) met interpolatie, tempo per tel, nieuw
   tempo-event bij > 0,5 % verschil; lock als de pulsen < 20 % afwijken.
 - `src/bussen.ts` — de indeling van de Rec bus: een rij bussen van 1 of 2
