@@ -168,6 +168,52 @@ button:disabled {
   border-left: 1px solid var(--strip-rand);
 }
 
+.weergaven {
+  display: flex;
+  gap: 8px;
+}
+
+.keuze-label {
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--zacht);
+  background: #1a1d22;
+  border-right: 1px solid var(--strip-rand);
+}
+
+/* Audio rood en MIDI geel, zoals hun kabels. */
+.keuze.audio {
+  --soort: #d9543f;
+  --soort-donker: #3a1a15;
+}
+
+.keuze.midi {
+  --soort: #d8bf3a;
+  --soort-donker: #352f12;
+}
+
+.keuze.audio .keuze-label,
+.keuze.midi .keuze-label {
+  color: var(--soort);
+  background: var(--soort-donker);
+}
+
+.keuze.audio,
+.keuze.midi {
+  border-color: color-mix(in srgb, var(--soort) 45%, var(--strip-rand));
+}
+
+.keuze.audio button[aria-pressed="true"],
+.keuze.midi button[aria-pressed="true"] {
+  background: var(--soort);
+  color: #160d08;
+}
+
 .keuze button[aria-pressed="true"] {
   background: var(--accent-zacht);
   color: var(--tekst);
@@ -349,6 +395,14 @@ button:disabled {
 
 .strip-midi {
   width: 112px;
+}
+
+.strip.kiesbaar {
+  cursor: pointer;
+}
+
+.strip.kiesbaar:not(.gekozen):hover {
+  border-color: var(--zacht);
 }
 
 .strip.gekozen {
@@ -675,9 +729,19 @@ button:disabled {
   left: 0;
   top: 0;
   fill: none;
+  pointer-events: none;
+  --kabel: #d9543f;
+}
+
+/* Audio rood, MIDI geel. */
+.kabels.midi {
+  --kabel: #d8bf3a;
+}
+
+.kabels .lijn {
   stroke: var(--kabel);
   stroke-width: 2.5;
-  pointer-events: none;
+  opacity: 0.85;
 }
 
 /* Een brede, onzichtbare baan om de kabel, zodat hij te raken is. */
@@ -688,14 +752,29 @@ button:disabled {
   cursor: pointer;
 }
 
-.kabels .boven path:first-child {
-  stroke: var(--rood);
-  stroke-width: 3;
+.kabels .boven .lijn {
+  stroke-width: 3.5;
+  opacity: 1;
+}
+
+.kabels .gekozen .lijn {
+  stroke: #fff;
+  stroke-width: 3.5;
+  opacity: 1;
+  filter: drop-shadow(0 0 4px var(--kabel));
 }
 
 .kabels .nieuw {
-  stroke: var(--groen);
+  stroke: var(--kabel);
+  stroke-width: 2.5;
   stroke-dasharray: 6 5;
+}
+
+/* Boven een poort waar je mag loslaten: de kabel wordt vast. */
+.kabels .nieuw.raakt {
+  stroke-dasharray: none;
+  stroke-width: 3.5;
+  filter: drop-shadow(0 0 4px var(--kabel));
 }
 
 .vlak.trekt,
@@ -802,12 +881,28 @@ button:disabled {
 }
 
 .poorten .stip:hover {
-  border-color: var(--groen);
+  border-color: var(--tekst);
 }
 
 .stip.vol {
-  background: var(--kabel);
+  background: #d9543f;
   border-color: var(--achter);
+}
+
+.poorten li.midi .stip.vol {
+  background: #d8bf3a;
+}
+
+/* De poort waar een kabel nu heen kan: groot en groen. */
+.poorten .stip.doelwit {
+  transform: scale(1.6);
+  background: var(--accent);
+  border-color: #fff;
+  box-shadow: 0 0 8px var(--accent);
+}
+
+.poorten .stip {
+  transition: transform 80ms;
 }
 
 .poorten li.links .stip {
@@ -841,7 +936,11 @@ button:disabled {
   width: 32px;
   height: 3px;
   border-radius: 2px;
-  background: var(--kabel);
+  background: #d9543f;
+}
+
+.legenda .lijn.midi {
+  background: #d8bf3a;
 }
 
 .legenda .stip {

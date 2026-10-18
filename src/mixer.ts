@@ -52,8 +52,17 @@ export interface Mixer {
   hardware: Strip[];
   bestemmingen: Strip[];
   route: (bron: Strip, best: Strip) => Route;
+  /** De strip waar WirePlumber deze stream heen stuurt: zijn doel, of de standaard. */
+  wpStrip: (stream: Knoop) => Strip | undefined;
   /** Alles wat van WirePlumber afwijkt, voor "Back to auto". */
-  handwerk: { kabels: number[]; doelen: number[]; los: number[] };
+  handwerk: {
+    kabels: number[];
+    doelen: number[];
+    /** Links die CachyPatch legt om losstaande streams terug naar de standaard te zetten. */
+    herstel: [number, number][];
+    /** Hoeveel streams dat zijn. */
+    losse: number;
+  };
 }
 
 export function bouwMixer(g: Graaf): Mixer {
@@ -115,6 +124,33 @@ export function bouwMixer(g: Graaf): Mixer {
   });
   uniek([...apps, ...hardware, ...bestemmingen]);
 
+  const knopen = new Map(g.knopen.map((k) => [k.id, k]));
+  const isUitStream = (k: Knoop) => (k.klasse ?? "").startsWith("Stream/Output");
+  const isInStream = (k: Knoop) => (k.klasse ?? "").startsWith("Stream/Input") && !isBus(k);
+
+  const wpStrip = (k: Knoop): Strip | undefined => {
+    const uitgang = isUitStream(k);
+    const doel = k.doel
+      ? g.knopen.find((n) => String(n.serial) === k.doel || n.naam === k.doel)
+      : g.knopen.find((n) => n.naam === (uitgang ? g.standaard_sink : g.standaard_bron));
+    if (!doel) return undefined;
+    return (uitgang ? bestemmingen : hardware).find((s) => s.knoop.id === doel.id && s.doelbaar);
+  };
+
+  // Een link is "auto" als hij ligt waar WirePlumber hem zelf zou leggen: van
+  // een stream zonder doel naar de standaard. Wie hem legde maakt niet uit;
+  // CachyPatch legt zo'n link zelf als hij een route herstelt, omdat
+  // WirePlumber een stream niet opnieuw bekijkt als zijn doel niet verandert.
+  const auto = (c: Kabel): boolean => {
+    const uit = knopen.get(c.uit_knoop);
+    const naar = knopen.get(c.in_knoop);
+    if (!uit || !naar) return false;
+    if (uit.doel !== null || naar.doel !== null) return false;
+    if (isUitStream(uit)) return !!wpStrip(uit)?.poorten.some((p) => p.id === c.in_poort);
+    if (isInStream(naar)) return !!wpStrip(naar)?.poorten.some((p) => p.id === c.uit_poort);
+    return c.client !== null && wp.has(c.client);
+  };
+
   const route = (bron: Strip, best: Strip): Route => {
     const van = new Set(bron.poorten.map((p) => p.id));
     const naar = new Set(best.poorten.map((p) => p.id));
@@ -126,41 +162,44 @@ export function bouwMixer(g: Graaf): Mixer {
       moet.every(([s, d]) => liggen.some((k) => k.uit_poort === s && k.in_poort === d));
     if (!zelfde) return { stand: { soort: "aangepast", uitleg: beschrijf(liggen, audio) }, kabels: liggen };
     // Naar de Rec bus route je altijd zelf; dat is geen afwijking.
-    const handmatig =
-      !isBus(best.knoop) &&
-      liggen.some((k) => k.client === null || !wp.has(k.client)) ||
-      bron.knoop.doel !== null ||
-      best.knoop.doel !== null;
+    const handmatig = !isBus(best.knoop) && liggen.some((k) => !auto(k));
     return { stand: { soort: "aan", handmatig }, kabels: liggen };
   };
 
-  // Handwerk: links die WirePlumber niet legde, en streams met een doel.
-  // Links naar de Rec bus horen bij de opname, niet bij WirePlumber.
+  // Handwerk: links die niet "auto" zijn (behalve naar de Rec bus, die horen
+  // bij de opname), en streams met een doel.
   const busIds = new Set(g.knopen.filter(isBus).map((k) => k.id));
-  const handKabels = kabels.filter(
-    (k) => (k.client === null || !wp.has(k.client)) && !busIds.has(k.in_knoop),
+  const handKabels = kabels.filter((k) => !busIds.has(k.in_knoop) && !auto(k));
+  const weg = new Set(handKabels.map((k) => k.id));
+  const streams = g.knopen.filter(
+    (k) => (isUitStream(k) || isInStream(k)) && perKnoop.has(k.id),
   );
-  const streams = g.knopen.filter((k) => (k.klasse ?? "").startsWith("Stream/") && perKnoop.has(k.id));
   const doelen = streams.filter((k) => k.doel !== null).map((k) => k.id);
-  const geraakt = new Set(handKabels.flatMap((k) => [k.uit_knoop, k.in_knoop]));
-  // Streams die na het opruimen geen enkele WirePlumber-link meer hebben:
-  // die moet WirePlumber een duw krijgen, anders blijven ze los staan.
-  const los = streams
-    .filter((k) => geraakt.has(k.id) || k.doel !== null)
-    .filter(
-      (k) =>
-        !kabels.some(
-          (c) => c.client !== null && wp.has(c.client) && (c.uit_knoop === k.id || c.in_knoop === k.id),
-        ),
-    )
-    .map((k) => k.id);
+  // Een stream zonder doel die na het opruimen nergens meer heen gaat, zet
+  // CachyPatch zelf terug op de standaard.
+  const herstel: [number, number][] = [];
+  let losse = 0;
+  for (const k of streams) {
+    if (k.doel !== null) continue;
+    const uitgang = isUitStream(k);
+    const blijft = kabels.some(
+      (c) => !weg.has(c.id) && !busIds.has(c.in_knoop) && (uitgang ? c.uit_knoop : c.in_knoop) === k.id,
+    );
+    if (blijft) continue;
+    const w = wpStrip(k);
+    const eigen = uitgang ? apps.find((s) => s.knoop.id === k.id) : bestemmingen.find((s) => s.knoop.id === k.id);
+    if (!w || !eigen) continue;
+    herstel.push(...(uitgang ? verwacht(eigen, w) : verwacht(w, eigen)));
+    losse++;
+  }
 
   return {
     apps,
     hardware,
     bestemmingen,
     route,
-    handwerk: { kabels: handKabels.map((k) => k.id), doelen, los },
+    wpStrip,
+    handwerk: { kabels: handKabels.map((k) => k.id), doelen, herstel, losse },
   };
 }
 
@@ -231,36 +270,39 @@ function beschrijf(kabels: Kabel[], poorten: Poort[]): string {
 }
 
 /**
- * De groene knop. Uit → aan gaat via `target.object` als dat kan (de stream
- * heeft nog geen route en de bestemming is een hele node), anders met
- * handmatige links. Aan → uit haalt de links weg en wist een doel dat
- * ernaartoe wees, zodat WirePlumber hem niet terugzet.
+ * De groene knop. Aan → uit haalt de links weg; een doel blijft staan, anders
+ * stuurt WirePlumber de stream meteen terug naar de standaard. Uit → aan:
+ * - een stream zonder route, naar waar WirePlumber hem toch heen zou sturen:
+ *   CachyPatch legt de links zelf (WirePlumber doet niets bij een doel dat
+ *   niet verandert);
+ * - een stream zonder route, naar een andere hele node: `target.object`;
+ * - anders: handmatige links.
  */
 export function schakel(m: Mixer, g: Graaf, bron: Strip, best: Strip) {
   const r = m.route(bron, best);
   if (r.stand.soort === "aangepast") return; // dat is werk voor de patchbay
   if (r.stand.soort === "aan") {
     ontkoppel(r.kabels.map((k) => k.id));
-    if (bron.knoop.doel !== null && bron.knoop.doel === String(best.knoop.serial))
-      zetDoel(bron.knoop.id, null);
-    if (best.knoop.doel !== null && best.knoop.doel === String(bron.knoop.serial))
-      zetDoel(best.knoop.id, null);
     return;
   }
   const poortenVan = (k: Knoop, ingang: boolean) =>
-    new Set(g.poorten.filter((p) => p.knoop === k.id && p.ingang === ingang).map((p) => p.id));
-  const bronUit = poortenVan(bron.knoop, false);
-  const bestIn = poortenVan(best.knoop, true);
+    new Set(g.poorten.filter((p) => p.knoop === k.id && p.ingang === ingang && !p.monitor).map((p) => p.id));
   const bronStream = (bron.knoop.klasse ?? "").startsWith("Stream/Output");
   const bestStream = (best.knoop.klasse ?? "").startsWith("Stream/Input") && !isBus(best.knoop);
-  if (bronStream && best.doelbaar && best.knoop.serial !== null) {
-    if (!g.kabels.some((k) => bronUit.has(k.uit_poort))) {
+  const busIds = new Set(g.knopen.filter(isBus).map((k) => k.id));
+
+  if (bronStream) {
+    const uit = poortenVan(bron.knoop, false);
+    const losStaand = !g.kabels.some((k) => uit.has(k.uit_poort) && !busIds.has(k.in_knoop));
+    if (losStaand && m.wpStrip(bron.knoop)?.sleutel !== best.sleutel && best.doelbaar && best.knoop.serial !== null) {
       zetDoel(bron.knoop.id, String(best.knoop.serial));
       return;
     }
   }
-  if (bestStream && bron.doelbaar && bron.knoop.serial !== null) {
-    if (!g.kabels.some((k) => bestIn.has(k.in_poort))) {
+  if (bestStream) {
+    const ins = poortenVan(best.knoop, true);
+    const losStaand = !g.kabels.some((k) => ins.has(k.in_poort));
+    if (losStaand && m.wpStrip(best.knoop)?.sleutel !== bron.sleutel && bron.doelbaar && bron.knoop.serial !== null) {
       zetDoel(best.knoop.id, String(bron.knoop.serial));
       return;
     }
@@ -270,19 +312,18 @@ export function schakel(m: Mixer, g: Graaf, bron: Strip, best: Strip) {
 
 /** Hoeveel er weggaat bij "Back to auto". */
 export function telHandwerk(m: Mixer): number {
-  return m.handwerk.kabels.length + m.handwerk.doelen.length;
+  return m.handwerk.kabels.length + m.handwerk.doelen.length + m.handwerk.losse;
 }
 
 /**
- * Alles terug aan WirePlumber: handmatige links weg, doelen gewist. Een stream
- * die daarna los staat krijgt `target.object = -1` (terug naar de standaard)
- * en dan niets: alleen wissen laat WirePlumber hem niet opnieuw bekijken.
+ * Alles terug aan WirePlumber: handmatige links weg, doelen gewist (dan zet
+ * WirePlumber de stream zelf op de standaard), en streams die dan nergens heen
+ * gaan krijgen hun standaardroute van CachyPatch.
  */
 export function terugNaarAuto(m: Mixer) {
   ontkoppel(m.handwerk.kabels);
-  const duw = new Set([...m.handwerk.doelen, ...m.handwerk.los]);
-  for (const k of duw) zetDoel(k, "-1");
-  setTimeout(() => duw.forEach((k) => zetDoel(k, null)), 500);
+  for (const k of m.handwerk.doelen) zetDoel(k, null);
+  for (const [s, d] of m.handwerk.herstel) verbind(s, d);
 }
 
 // --- Volume ---

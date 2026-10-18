@@ -3,20 +3,19 @@
 // route daarheen aan of uit. Andere routes blijven zoals ze zijn.
 
 import { useRef, type ReactNode } from "react";
-import { isBus, zetMute, zetVolume, type Graaf } from "./api";
+import { isBus, zetVolume } from "./api";
+import { muteStap, schakelRoute, volumeVastleggen } from "./handelingen";
 import { MeterBalk } from "./Meter";
 import {
   MAX_DB,
   UIT_DB,
   metDb,
-  schakel,
   stripDb,
   type Mixer as MixerModel,
   type Strip,
 } from "./mixer";
 
 export function Mixer({
-  graaf,
   mixer,
   bewerkt,
   kiesBewerkt,
@@ -26,7 +25,6 @@ export function Mixer({
   opnemen,
 }: {
   opnemen: boolean;
-  graaf: Graaf;
   mixer: MixerModel;
   bewerkt: Strip | null;
   kiesBewerkt: (sleutel: string) => void;
@@ -40,7 +38,6 @@ export function Mixer({
       key={s.sleutel}
       s={s}
       mixer={mixer}
-      graaf={graaf}
       bewerkt={bewerkt}
       verberg={verberg}
       naarPatchbay={naarPatchbay}
@@ -63,7 +60,15 @@ export function Mixer({
           ).length;
           const neemtOp = opnemen && isBus(d.knoop);
           return (
-            <Kaart key={d.sleutel} s={d} gekozen={gekozen} verberg={verberg} bestemming opname={neemtOp}>
+            <Kaart
+              key={d.sleutel}
+              s={d}
+              gekozen={gekozen}
+              verberg={verberg}
+              bestemming
+              opname={neemtOp}
+              kies={() => kiesBewerkt(d.sleutel)}
+            >
               <button
                 className={`kies${gekozen ? " aan" : ""}`}
                 aria-pressed={gekozen}
@@ -107,14 +112,12 @@ function Rij({
 function BronStrip({
   s,
   mixer,
-  graaf,
   bewerkt,
   verberg,
   naarPatchbay,
 }: {
   s: Strip;
   mixer: MixerModel;
-  graaf: Graaf;
   bewerkt: Strip | null;
   verberg: (sleutel: string) => void;
   naarPatchbay: () => void;
@@ -145,7 +148,7 @@ function BronStrip({
         className={`kies${aan ? " aan" : ""}`}
         aria-pressed={aan}
         title={`${aan ? "Remove" : "Add"} route to ${bewerkt.naam}`}
-        onClick={() => schakel(mixer, graaf, s, bewerkt)}
+        onClick={() => schakelRoute(s.sleutel, bewerkt.sleutel, aan)}
       >
         {bewerkt.naam}
       </button>
@@ -176,9 +179,12 @@ function Kaart({
   verberg,
   bestemming,
   opname,
+  kies,
   children,
 }: {
   opname?: boolean;
+  /** Een bestemming: klik ergens in de strip om hem te bewerken, zoals in CachyMix. */
+  kies?: () => void;
   s: Strip;
   gekozen?: boolean;
   verberg: (sleutel: string) => void;
@@ -194,34 +200,49 @@ function Kaart({
     if (v) zetVolume(s.knoop.id, v);
     if (!heel) voorMute.delete(s.sleutel);
   };
+  // Het volume van voor een beweging, om die als één stap te onthouden.
+  const voor = useRef<number[] | null>(null);
+  const begin = () => (voor.current = s.knoop.volume ? [...s.knoop.volume] : null);
+  const klaar = (db: number) => {
+    const nieuw = metDb(s, db);
+    if (voor.current && nieuw) volumeVastleggen(s.knoop.id, voor.current, nieuw);
+    voor.current = null;
+  };
   const mute = () => {
-    if (heel) return zetMute(s.knoop.id, !s.knoop.mute);
+    if (heel) return muteStap(s.knoop.id, !s.knoop.mute);
+    const oud = s.knoop.volume ? [...s.knoop.volume] : null;
+    let nieuw: number[] | null = null;
     if (gemute) {
       const terug = voorMute.get(s.sleutel) ?? 0;
       voorMute.delete(s.sleutel);
-      const v = metDb(s, terug);
-      if (v) zetVolume(s.knoop.id, v);
+      nieuw = metDb(s, terug);
     } else if (db !== null) {
       voorMute.set(s.sleutel, db);
-      const v = metDb(s, UIT_DB);
-      if (v) zetVolume(s.knoop.id, v);
+      nieuw = metDb(s, UIT_DB);
     }
+    if (nieuw) zetVolume(s.knoop.id, nieuw);
+    if (oud && nieuw) volumeVastleggen(s.knoop.id, oud, nieuw);
   };
 
   return (
     <article
+      onClick={kies}
       className={
         "strip" +
         (bestemming ? " strip-uit" : s.kanalen.length > 1 ? " strip-stereo" : "") +
         (gekozen ? " gekozen" : "") +
         (opname ? " opname" : "") +
+        (kies ? " kiesbaar" : "") +
         (s.stil || gemute ? " strip-stil" : "")
       }
     >
       <div className="strip-kop" title={`${s.naam} — ${s.onder}`}>
         <div className="naam">{s.naam}</div>
         <div className="strip-onder">{s.onder}</div>
-        <button className="verberg" aria-label={`Hide ${s.naam}`} title="Hide" onClick={() => verberg(s.sleutel)}>
+        <button className="verberg" aria-label={`Hide ${s.naam}`} title="Hide" onClick={(e) => {
+            e.stopPropagation();
+            verberg(s.sleutel);
+          }}>
           ×
         </button>
       </div>
@@ -232,7 +253,7 @@ function Kaart({
             <MeterBalk key={k} knoop={s.knoop.id} kanalen={[k]} />
           ))}
         </div>
-        {db === null ? <div className="geen-volume">no volume</div> : <Fader db={db} onChange={zetDb} uit={gemute} />}
+        {db === null ? <div className="geen-volume">no volume</div> : <Fader db={db} onChange={zetDb} uit={gemute} begin={begin} klaar={klaar} />}
       </div>
       <div className={"db-label" + (db !== null && db > 0 ? " db-boven" : "")}>{db === null ? "" : toonDb(db)}</div>
       <div className="knoppen">
@@ -298,7 +319,22 @@ function toonDb(db: number): string {
 
 /** Sleept relatief, dus een klik geeft nooit een sprong. Shift = fijn,
  *  dubbelklik = 0 dB, wiel = 1 dB. */
-function Fader({ db, onChange, uit }: { db: number; onChange: (db: number) => void; uit: boolean }) {
+function Fader({
+  db,
+  onChange,
+  uit,
+  begin,
+  klaar,
+}: {
+  db: number;
+  onChange: (db: number) => void;
+  uit: boolean;
+  /** Voor en na een beweging, voor ongedaan maken. */
+  begin: () => void;
+  klaar: (db: number) => void;
+}) {
+  // Wielstappen die snel achter elkaar komen, tellen als één beweging.
+  const wiel = useRef<number | null>(null);
   const baan = useRef<HTMLDivElement>(null);
   // Tijdens het slepen telt de eigen stand, niet de dB die terugkomt uit de
   // graph: die loopt een beetje achter.
@@ -322,6 +358,7 @@ function Fader({ db, onChange, uit }: { db: number; onChange: (db: number) => vo
         const el = e.currentTarget;
         el.setPointerCapture(e.pointerId);
         sleept.current = true;
+        begin();
         let y = e.clientY;
         const beweeg = (ev: PointerEvent) => {
           const dy = ev.clientY - y;
@@ -331,6 +368,7 @@ function Fader({ db, onChange, uit }: { db: number; onChange: (db: number) => vo
         };
         const los = () => {
           sleept.current = false;
+          klaar(standNaarDb(stand.current) <= UIT_DB + 0.05 ? UIT_DB : Math.round(standNaarDb(stand.current) * 10) / 10);
           el.removeEventListener("pointermove", beweeg);
           el.removeEventListener("pointerup", los);
           el.removeEventListener("pointercancel", los);
@@ -339,12 +377,23 @@ function Fader({ db, onChange, uit }: { db: number; onChange: (db: number) => vo
         el.addEventListener("pointerup", los);
         el.addEventListener("pointercancel", los);
       }}
-      onDoubleClick={() => onChange(0)}
+      onDoubleClick={() => {
+        begin();
+        onChange(0);
+        klaar(0);
+      }}
       onWheel={(e) => {
         const stap = e.shiftKey ? 0.1 : 1;
         const huidig = db <= UIT_DB ? -61 : db;
         const nieuw = Math.min(MAX_DB, huidig + (e.deltaY < 0 ? stap : -stap));
-        onChange(nieuw < -60 ? UIT_DB : Math.round(nieuw * 10) / 10);
+        const waarde = nieuw < -60 ? UIT_DB : Math.round(nieuw * 10) / 10;
+        if (wiel.current === null) begin();
+        else clearTimeout(wiel.current);
+        onChange(waarde);
+        wiel.current = window.setTimeout(() => {
+          wiel.current = null;
+          klaar(waarde);
+        }, 600);
       }}
       title="Drag, wheel, Shift for fine, double-click for 0 dB"
     >
