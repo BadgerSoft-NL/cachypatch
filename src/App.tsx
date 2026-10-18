@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { version } from "../package.json";
-import { LEEG, volgGraaf, type Graaf } from "./api";
+import {
+  isBus,
+  LEEG,
+  STIL,
+  volgGraaf,
+  volgTransport,
+  zetTransport,
+  type Graaf,
+  type Opties,
+  type TransportStand,
+} from "./api";
+import { Transport } from "./Transport";
 import { deelIn } from "./indeling";
 import { Mixer } from "./Mixer";
 import { bouwMixer, telHandwerk, terugNaarAuto } from "./mixer";
@@ -16,6 +27,19 @@ type Weergave = "mixer" | "patchbay";
 // Welke strips je in de mixer hebt verborgen. Dat is een voorkeur van de
 // weergave, geen routing, dus die mag blijven.
 const VERBORGEN = "cachypatch.verborgen";
+
+// De keuzes van de transportbalk; ook een voorkeur, geen routing.
+const OPTIES = "cachypatch.opties";
+const STANDAARD: Opties = { mixdown: true, multitrack: true, midi: true, klok: null, start_stop: false };
+
+function leesOpties(): Opties {
+  try {
+    // De klok wijst naar een poort-id, en die geldt maar één sessie.
+    return { ...STANDAARD, ...JSON.parse(localStorage.getItem(OPTIES) ?? "{}"), klok: null };
+  } catch {
+    return STANDAARD;
+  }
+}
 
 function leesVerborgen(): Set<string> {
   try {
@@ -36,6 +60,8 @@ export default function App() {
   const [verborgen, setVerborgen] = useState<Set<string>>(leesVerborgen);
   const [toonVerborgen, setToonVerborgen] = useState(false);
   const [bevestig, setBevestig] = useState(false);
+  const [transport, setTransport] = useState<TransportStand>(STIL);
+  const [opties, setOpties] = useState<Opties>(leesOpties);
 
   useEffect(() => volgGraaf(setGraaf), []);
   // De nep-pieken willen de huidige graph weten; een ref houdt die bij.
@@ -43,6 +69,19 @@ export default function App() {
   graafRef.current = graaf;
   useEffect(() => volgPieken(() => graafRef.current), []);
   useEffect(() => volgMidi(() => graafRef.current), []);
+  useEffect(() => volgTransport(setTransport), []);
+  useEffect(() => {
+    zetTransport(opties);
+    try {
+      localStorage.setItem(OPTIES, JSON.stringify(opties));
+    } catch {
+      // Geen opslag: dan de standaard na een herstart.
+    }
+  }, [opties]);
+  // Na een herverbinding kent de Rust-kant de opties niet meer.
+  useEffect(() => {
+    if (graaf.verbonden) zetTransport(opties);
+  }, [graaf.verbonden]);
   useEffect(() => {
     try {
       localStorage.setItem(VERBORGEN, JSON.stringify([...verborgen]));
@@ -73,6 +112,10 @@ export default function App() {
   const nuVerborgen = alleStrips.filter((s) => verborgen.has(s.sleutel));
   const opMixer = weergave === "mixer";
   const doelNaam = tab === "audio" ? bewerkt?.naam : midiBewerkt?.naam;
+  const midiBus = midiMixer.bestemmingen.find((d) => graaf.knopen.some((k) => k.id === d.poort.knoop && isBus(k)));
+  const midiNaarBus = midiBus
+    ? midiMixer.bronnen.filter((b) => midiMixer.route(b, midiBus)).map((b) => b.naam)
+    : [];
   // Wat de knop "Back to auto" / "Disconnect all" zou weghalen.
   const weg = tab === "audio" ? handwerk : midiMixer.kabels.length;
 
@@ -211,6 +254,17 @@ export default function App() {
         </div>
       )}
 
+      {opMixer && (
+        <Transport
+          tab={tab}
+          graaf={graaf}
+          stand={transport}
+          opties={opties}
+          zetOpties={setOpties}
+          midiNaarBus={midiNaarBus}
+        />
+      )}
+
       {weergave === "patchbay" ? (
         <>
           <Patchbay
@@ -243,6 +297,7 @@ export default function App() {
           verborgen={verborgen}
           verberg={verberg}
           naarPatchbay={() => setWeergave("patchbay")}
+          opnemen={transport.bezig}
         />
       ) : (
         <MidiMixer
@@ -251,6 +306,7 @@ export default function App() {
           kiesBewerkt={setMidiBewerktSleutel}
           verborgen={verborgen}
           verberg={verberg}
+          opnemen={transport.bezig}
         />
       )}
     </div>

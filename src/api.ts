@@ -76,6 +76,79 @@ export const LEEG: Graaf = {
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 
+/** De node-naam van CachyPatch' eigen opname-ingang. */
+export const BUS = "cachypatch-opname";
+
+export function isBus(k: { naam: string }): boolean {
+  return k.naam === BUS;
+}
+
+// --- Opname ---
+
+export interface Opties {
+  mixdown: boolean;
+  multitrack: boolean;
+  midi: boolean;
+  /** MIDI-bronpoort van de externe klok; null = intern. */
+  klok: number | null;
+  start_stop: boolean;
+}
+
+export interface TransportStand {
+  bezig: boolean;
+  map: string | null;
+  seconden: number;
+  klok: { bpm: number | null; lock: boolean };
+  fout: string | null;
+}
+
+export const STIL: TransportStand = {
+  bezig: false,
+  map: null,
+  seconden: 0,
+  klok: { bpm: null, lock: false },
+  fout: null,
+};
+
+let nepTransport: TransportStand = STIL;
+let nepTransportVolger: ((t: TransportStand) => void) | undefined;
+let nepStart = 0;
+
+export function volgTransport(bij: (t: TransportStand) => void): () => void {
+  if (inTauri) {
+    let stop: (() => void) | undefined;
+    let weg = false;
+    listen<TransportStand>("transport", (e) => bij(e.payload)).then((s) => (weg ? s() : (stop = s)));
+    return () => {
+      weg = true;
+      stop?.();
+    };
+  }
+  nepTransportVolger = bij;
+  const id = setInterval(() => {
+    if (nepTransport.bezig) nepTransport = { ...nepTransport, seconden: (performance.now() - nepStart) / 1000 };
+    bij(nepTransport);
+  }, 200);
+  return () => clearInterval(id);
+}
+
+export function zetTransport(opties: Opties) {
+  if (inTauri) invoke("zet_transport", { opties });
+}
+
+export function startOpname() {
+  if (inTauri) return void invoke("start_opname");
+  nepStart = performance.now();
+  nepTransport = { ...STIL, bezig: true, map: "~/Recordings/2026-10-18_1043" };
+  nepTransportVolger?.(nepTransport);
+}
+
+export function stopOpname() {
+  if (inTauri) return void invoke("stop_opname");
+  nepTransport = { ...nepTransport, bezig: false };
+  nepTransportVolger?.(nepTransport);
+}
+
 /** Roept `bij` aan met de huidige graph en daarna met elke verandering. */
 export function volgGraaf(bij: (g: Graaf) => void): () => void {
   if (!inTauri) {
@@ -302,7 +375,12 @@ function nepGraaf(): Graaf {
   const discordMic = knoop({ naam: "WEBRTC VoiceEngine", app: "Discord", media: "recStream", klasse: "Stream/Input/Audio" });
   const dcMic = poort(discordMic, "input_MONO", true, { kanaal: "MONO" });
 
+  const bus = knoop({ naam: BUS, app: "CachyPatch", beschrijving: "Rec bus", klasse: "Stream/Input/Audio" });
+  const busIn = ["FL", "FR"].map((c) => poort(bus, `input_${c}`, true, { kanaal: c }));
+  const busMidi = poort(bus, "midi_in", true, { soort: "midi" });
+
   spUit.forEach((p, i) => kabel(p, ffOut[i]));
+  spUit.forEach((p, i) => kabel(p, busIn[i], WIJ));
   spUit.forEach((p, i) => kabel(p, recIn[i], WIJ));
   ffxUit.forEach((p, i) => kabel(p, ffOut[i]));
   mpvUit.forEach((p, i) => kabel(p, hdmiIn[i]));
@@ -339,6 +417,8 @@ function nepGraaf(): Graaf {
   kabel(fpUit, tutorIn, WIJ);
   kabel(vkbdUit, surgeIn, WIJ);
   kabel(tutorUit, fpIn, WIJ);
+  kabel(fpUit, busMidi, WIJ);
+  kabel(tutorUit, busMidi, WIJ);
 
   // Eén volume per kanaal, zoals een echte node dat meldt.
   for (const k of knopen) {

@@ -20,6 +20,8 @@ use pw::spa;
 use pw::spa::pod::{Object, Pod, Value};
 use pw::stream::{StreamFlags, StreamListener, StreamRc};
 
+use crate::opname::{Bericht, Opnemer};
+
 /// Het voorvoegsel van de eigen meter-nodes.
 pub const VOORVOEGSEL: &str = "cachypatch-meter-";
 
@@ -50,6 +52,7 @@ pub fn maak(
     serial: u64,
     sink: bool,
     kanalen: Vec<String>,
+    opnemer: Opnemer,
 ) -> Option<Meter> {
     if kanalen.is_empty() || kanalen.len() > spa::sys::SPA_AUDIO_MAX_CHANNELS as usize {
         return None;
@@ -96,6 +99,22 @@ pub fn maak(
                     if v > p[c] {
                         p[c] = v;
                     }
+                }
+                // Neemt een lopende opname deze node mee (multitrack)? Dan de
+                // gevraagde kanalen eruit halen en naar de schrijfdraad.
+                let Ok(op) = opnemer.try_borrow() else { return };
+                let Some(a) = op.as_ref() else { return };
+                let Some(sporen) = a.audio.get(&knoop) else { return };
+                let frames = bytes.len() / 4 / n;
+                for (spoor, kan) in sporen {
+                    let mut uit = Vec::with_capacity(frames * kan.len());
+                    for f in 0..frames {
+                        for &c in kan {
+                            let o = (f * n + c) * 4;
+                            uit.push(f32::from_le_bytes([bytes[o], bytes[o + 1], bytes[o + 2], bytes[o + 3]]));
+                        }
+                    }
+                    let _ = a.tx.send(Bericht::Audio(*spoor, uit));
                 }
             }
         })

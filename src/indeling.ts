@@ -5,7 +5,13 @@
 //
 // Audio en MIDI strikt gescheiden: een indeling is altijd voor één soort.
 
-import type { Graaf, Knoop, Poort, Soort } from "./api";
+import { isBus, type Graaf, type Knoop, type Poort, type Soort } from "./api";
+
+/** De naam van een app-node: de app, anders de beschrijving. De Rec bus heet zo. */
+export function appNaam(k: Knoop): string {
+  if (isBus(k)) return "Rec bus";
+  return k.app ?? k.beschrijving ?? k.naam;
+}
 
 export type Kant = "links" | "rechts";
 
@@ -167,8 +173,8 @@ function audioModules(g: Graaf, k: Knoop, poorten: Poort[], voeg: Voeg, verborge
   const fysiek = k.apparaat !== null || poorten.some((p) => p.fysiek);
 
   if (klasse.startsWith("Stream/")) {
-    const titel = k.app ?? k.beschrijving ?? k.naam;
-    const icoon = appIcoon(titel, klasse.startsWith("Stream/Input"));
+    const titel = appNaam(k);
+    const icoon = appIcoon(isBus(k) ? "opname" : titel, klasse.startsWith("Stream/Input"));
     const media = k.media && k.media !== titel ? k.media : null;
     voeg(
       "Apps · playing",
@@ -258,7 +264,7 @@ export function midiDing(k: Knoop, p: Poort): MidiDing {
     };
   }
   return {
-    titel: k.app ?? k.beschrijving ?? k.naam,
+    titel: appNaam(k),
     isApp: k.klasse !== "Midi/Bridge",
     doorvoer: false,
     sleutel: k.naam,
@@ -321,6 +327,7 @@ export function poortLabel(p: Poort, soort: Soort): string {
 
 function appIcoon(naam: string, opname: boolean): Icoon {
   const n = naam.toLowerCase();
+  if (n === "opname") return "opname";
   if (/discord|teams|zoom|slack|signal|webrtc|skype/.test(n)) return "praat";
   if (/firefox|chrom|brave|vivaldi|opera|edge|zen|librewolf/.test(n)) return "wereld";
   if (/mpv|vlc|totem|celluloid|haruna|smplayer|kodi/.test(n)) return "speel";

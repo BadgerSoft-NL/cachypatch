@@ -34,6 +34,15 @@ Concept en ontwerp staan in Nokta (`CachyPatch.nokta`, notities **Concept** en
 - `src-tauri/src/midimeter.rs` — één `pw_filter`-node met per MIDI-uitgang een
   ingang en een eigen link (zonder linger). Telt events, kanalen, soorten en
   het laatste muzikale event. Event `midi`. Raw `pw_sys`, zoals miau-core.
+- `src-tauri/src/opname.rs` — de Rec bus (`cachypatch-opname`, een zichtbare
+  `pw_filter`-node met `input_FL`/`input_FR`/`midi_in`, `media.class`
+  `Stream/Input/Audio`, `node.autoconnect=false`), de schrijfdraad (`hound`,
+  32-bit float) en de klok/MIDI-bestand (`midly`, type 1, 480 PPQ). Mixdown =
+  wat op de bus binnenkomt; multitrack komt uit de meter-streams, MIDI per
+  bronpoort uit de MIDI-meter. Wat meedoet = wat bij Start naar de bus gaat.
+  Uitvoer in `~/Recordings/JJJJ-MM-DD_UUMM/`. Externe klok: pulsen tellen
+  (24 ppq) met interpolatie, tempo per tel, nieuw tempo-event bij > 0,5 %
+  verschil; lock als de pulsen < 20 % afwijken.
 - Eigen nodes heten `cachypatch-meter-…` en blijven met hun poorten en links
   buiten de momentopname.
 - `src/indeling.ts` — van graph naar modules: links wat levert, rechts wat
@@ -57,6 +66,8 @@ Concept en ontwerp staan in Nokta (`CachyPatch.nokta`, notities **Concept** en
   (−60…0 dBFS, val 24 dB/s, piek 1 s), zodat React niet 25×/s hertekent.
 - `src/midi.ts`, `src/MidiMeter.tsx` — MIDI-activiteit met 150 ms nagloei; een
   bestemming toont de samengevoegde activiteit van wat erheen gaat.
+- `src/Transport.tsx` — de transportbalk in beide mixers; keuzes in
+  `localStorage` (de klokpoort niet: ids gelden één sessie).
 - `src/MidiMixer.tsx` — edit-mix per MIDI-poort; aan/uit = link leggen/weghalen.
   "Disconnect all" in plaats van "Back to auto".
 - Node-ids zijn per sessie; herkennen via `node.name`, `port.name`, serials.
@@ -79,6 +90,7 @@ cargo run --example graaf            # vanuit src-tauri/: de graph als JSON, sch
 cargo run --example proef -- <stream> <sink>   # probeert alle opdrachten op een stream
 cargo run --example meters           # drie seconden pieken per node
 cargo run --example midi             # drie seconden MIDI-activiteit per poort
+cargo run --example opname [extern]  # proefopname van cp-test-sinus en midi_out_0
 ```
 
 Zonder Tauri bootst `api.ts` WirePlumber na, zodat de mixer in de browser te
@@ -104,6 +116,14 @@ naar `src-tauri/target/echt.json` en open
 
 Zelf proberen zonder je eigen audio te raken: `pw-play --volume 0` op een
 stille WAV en `cargo run --example proef -- <stream> <sink>`.
+
+Opnemen testen zonder geluid: `pw-play -P '{ node.name = cp-test-sinus
+node.autoconnect = false }' sinus.wav` plus miau-core's `midi_out`, dan
+`cargo run --example opname [extern]`.
+
+Let op: WirePlumber onthoudt volume en mute **per applicatie**
+(`~/.local/state/wireplumber/stream-properties`). Wie met `proef` op een
+`pw-play`-stream test, verandert dus het volume van elke volgende `pw-play`.
 
 MIDI testen zonder je apparaten: `target/debug/examples/midi_out` uit
 miau-core geeft een arpeggio op een eigen poort; `cargo run --example midi`

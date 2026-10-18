@@ -17,6 +17,8 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::ffi::{c_void, CString};
 use std::ptr;
+use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use pipewire as pw;
 use pw::spa;
@@ -24,6 +26,7 @@ use pw::sys as pw_sys;
 use serde::Serialize;
 
 use crate::meter::VOORVOEGSEL;
+use crate::opname::{Klok, Opnemer};
 
 pub const NAAM: &str = "cachypatch-meter-midi";
 
@@ -53,10 +56,11 @@ struct Poort {
     data: *mut c_void,
 }
 
-#[derive(Default)]
 struct Binnen {
     poorten: Vec<Poort>,
     activiteit: BTreeMap<u32, Activiteit>,
+    opnemer: Opnemer,
+    klok: Rc<RefCell<Klok>>,
 }
 
 pub struct MidiMeter {
@@ -69,7 +73,7 @@ pub struct MidiMeter {
 }
 
 impl MidiMeter {
-    pub fn maak(core: &pw::core::CoreRc) -> Option<Self> {
+    pub fn maak(core: &pw::core::CoreRc, opnemer: Opnemer, klok: Rc<RefCell<Klok>>) -> Option<Self> {
         let naam = CString::new(NAAM).ok()?;
         debug_assert!(NAAM.starts_with(VOORVOEGSEL));
         let props = pw::properties::properties! {
@@ -95,7 +99,12 @@ impl MidiMeter {
         });
         // SAFETY: idem, een lege haak.
         let mut haak: Box<spa::sys::spa_hook> = Box::new(unsafe { std::mem::zeroed() });
-        let binnen = Box::new(RefCell::new(Binnen::default()));
+        let binnen = Box::new(RefCell::new(Binnen {
+            poorten: Vec::new(),
+            activiteit: BTreeMap::new(),
+            opnemer,
+            klok,
+        }));
         // SAFETY: filter, haak, events en binnen leven allemaal tot Drop.
         unsafe {
             pw_sys::pw_filter_add_listener(
@@ -140,7 +149,7 @@ impl MidiMeter {
             blijft
         });
         self.links.retain(|bron, _| bronnen.contains(bron));
-        let Binnen { poorten, activiteit } = &mut *b;
+        let Binnen { poorten, activiteit, .. } = &mut *b;
         activiteit.retain(|bron, _| bronnen.contains(bron));
 
         // Nieuw wat nieuw is.
@@ -201,13 +210,28 @@ impl Drop for MidiMeter {
     }
 }
 
-unsafe extern "C" fn bij_process(data: *mut c_void, _positie: *mut spa::sys::spa_io_position) {
+unsafe extern "C" fn bij_process(data: *mut c_void, positie: *mut spa::sys::spa_io_position) {
     // SAFETY: `data` is de `RefCell<Binnen>` uit `maak`, die leeft tot Drop.
     let binnen = unsafe { &*data.cast::<RefCell<Binnen>>() };
     let Ok(mut b) = binnen.try_borrow_mut() else {
         return;
     };
-    let Binnen { poorten, activiteit } = &mut *b;
+    // Wanneer elk event gebeurde: het einde van dit blok is ongeveer nu, en
+    // een event ligt `duur - offset` samples daarvoor.
+    let nu = Instant::now();
+    let (duur, rate) = if positie.is_null() {
+        (0, 48_000)
+    } else {
+        // SAFETY: PipeWire geeft een geldige positie mee.
+        unsafe { ((*positie).clock.duration, (*positie).clock.rate.denom.max(1)) }
+    };
+    let wanneer = |offset: u32| {
+        let terug = duur.saturating_sub(u64::from(offset)) as f64 / f64::from(rate);
+        nu.checked_sub(Duration::from_secs_f64(terug)).unwrap_or(nu)
+    };
+    let Binnen { poorten, activiteit, opnemer, klok } = &mut *b;
+    let mut op = opnemer.try_borrow_mut().ok();
+    let mut klok = klok.try_borrow_mut().ok();
     for p in poorten.iter() {
         // SAFETY: `p.data` is een levende poort van dit filter.
         let buf = unsafe { pw_sys::pw_filter_dequeue_buffer(p.data) };
@@ -226,7 +250,32 @@ unsafe extern "C" fn bij_process(data: *mut c_void, _positie: *mut spa::sys::spa
                     if o.saturating_add(n) <= d.maxsize as usize {
                         let bytes = std::slice::from_raw_parts(d.data.cast::<u8>().add(o), n);
                         let a = activiteit.entry(p.bron).or_default();
-                        lees_sequentie(bytes, |soort, w| tel(a, soort, w));
+                        lees_sequentie(bytes, |offset, soort, w| {
+                            tel(a, soort, w);
+                            let Some(raw) = als_bytes(soort, w) else { return };
+                            let t = wanneer(offset);
+                            // De klok volgen, en Start/Stop doorgeven.
+                            if let Some(k) = klok.as_deref_mut().filter(|k| k.bron == Some(p.bron)) {
+                                match raw.first() {
+                                    Some(0xf8) => {
+                                        k.puls(t);
+                                        if let Some(a) = op.as_deref_mut().and_then(|o| o.as_mut()) {
+                                            let s = a.sinds(t);
+                                            a.pulsen.push(s);
+                                        }
+                                    }
+                                    Some(0xfa | 0xfb) if k.start_stop => k.verzoek = Some(true),
+                                    Some(0xfc) if k.start_stop => k.verzoek = Some(false),
+                                    _ => {}
+                                }
+                            }
+                            if let Some(a) = op.as_deref_mut().and_then(|o| o.as_mut()) {
+                                if let Some(&spoor) = a.midi.get(&p.bron) {
+                                    let s = a.sinds(t);
+                                    a.midi_events.push((spoor, s, raw));
+                                }
+                            }
+                        });
                     }
                 }
             }
@@ -239,8 +288,27 @@ fn u32_op(b: &[u8], at: usize) -> Option<u32> {
     Some(u32::from_ne_bytes(b.get(at..at + 4)?.try_into().ok()?))
 }
 
+/// Een control als MIDI 1.0-bytes, ook als hij als UMP binnenkwam.
+fn als_bytes(ctype: u32, w: &[u8]) -> Option<Vec<u8>> {
+    match ctype {
+        SPA_CONTROL_MIDI => Some(w.to_vec()),
+        SPA_CONTROL_UMP => {
+            let woord = u32_op(w, 0)?;
+            let status = (woord >> 16) as u8;
+            let (d1, d2) = ((woord >> 8) as u8 & 0x7f, woord as u8 & 0x7f);
+            match (woord >> 28, status & 0xf0) {
+                (0x1, _) if status >= 0xf8 => Some(vec![status]),
+                (0x2, 0xc0 | 0xd0) => Some(vec![status, d1]),
+                (0x2, _) => Some(vec![status, d1, d2]),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 /// Loopt een SPA-sequence-pod af, zoals miau-core's `for_each_control`.
-fn lees_sequentie(pod: &[u8], mut f: impl FnMut(u32, &[u8])) {
+fn lees_sequentie(pod: &[u8], mut f: impl FnMut(u32, u32, &[u8])) {
     let (Some(grootte), Some(soort)) = (u32_op(pod, 0), u32_op(pod, 4)) else {
         return;
     };
@@ -250,7 +318,7 @@ fn lees_sequentie(pod: &[u8], mut f: impl FnMut(u32, &[u8])) {
     let eind = (8 + grootte as usize).min(pod.len());
     let mut c = 16;
     while c + 16 <= eind {
-        let (Some(ctype), Some(n)) = (u32_op(pod, c + 4), u32_op(pod, c + 8)) else {
+        let (Some(offset), Some(ctype), Some(n)) = (u32_op(pod, c), u32_op(pod, c + 4), u32_op(pod, c + 8)) else {
             break;
         };
         let start = c + 16;
@@ -258,7 +326,7 @@ fn lees_sequentie(pod: &[u8], mut f: impl FnMut(u32, &[u8])) {
         if start + n > eind {
             break;
         }
-        f(ctype, &pod[start..start + n]);
+        f(offset, ctype, &pod[start..start + n]);
         c = start + n.next_multiple_of(8);
     }
 }
