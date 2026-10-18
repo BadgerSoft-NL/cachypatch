@@ -3,14 +3,16 @@
 // hoeft te hertekenen.
 //
 // Schaal in dB: −60 dBFS onderaan, 0 bovenaan. Vallen gaat met ongeveer
-// 24 dB per seconde, de piek blijft een seconde staan.
+// 24 dB per seconde, de piek blijft anderhalve seconde staan, clip twee.
+// De stand knipt de bovenkant van een vast verloop weg, zoals in CachyMix.
 
 import { listen } from "@tauri-apps/api/event";
 import type { Graaf } from "./api";
 
 const ONDER = -60;
 const VAL_PER_S = 24;
-const HOUD_MS = 1000;
+const HOUD_MS = 1500;
+const CLIP_MS = 2000;
 
 /** Laatste piek per node, lineair, per kanaal. */
 const binnen = new Map<number, number[]>();
@@ -18,6 +20,9 @@ const binnen = new Map<number, number[]>();
 interface Balk {
   el: HTMLElement;
   piek?: HTMLElement;
+  clip?: HTMLElement;
+  clipTot: number;
+  getoond: number;
   knoop: number;
   /** Welke kanalen; bij meer dan één telt de hoogste. */
   kanalen: number[];
@@ -39,8 +44,14 @@ export function dbStand(lin: number): number {
  * breedte, met `liggend`) als percentage; `piek` de plek van de piekstreep.
  * Geeft een functie om weer los te koppelen.
  */
-export function koppel(el: HTMLElement, knoop: number, kanalen: number[], piek?: HTMLElement) {
-  const b: Balk = { el, piek, knoop, kanalen, stand: 0, houd: 0, houdTot: 0 };
+export function koppel(
+  el: HTMLElement,
+  knoop: number,
+  kanalen: number[],
+  piek?: HTMLElement,
+  clip?: HTMLElement,
+) {
+  const b: Balk = { el, piek, clip, clipTot: 0, getoond: -1, knoop, kanalen, stand: 0, houd: 0, houdTot: 0 };
   balken.add(b);
   start();
   return () => {
@@ -71,12 +82,16 @@ function tik(nu: number) {
       b.houd = doel;
       b.houdTot = nu + HOUD_MS;
     }
-    b.el.style.height = `${b.stand * 100}%`;
-    b.el.classList.toggle("vol", b.stand >= 0.99);
+    if (Math.abs(b.getoond - b.stand) > 0.002) {
+      b.el.style.clipPath = `inset(${(1 - b.stand) * 100}% 0 0 0)`;
+      b.getoond = b.stand;
+    }
     if (b.piek) {
       b.piek.style.bottom = `${b.houd * 100}%`;
       b.piek.style.opacity = b.houd > 0.02 ? "1" : "0";
     }
+    if (lin >= 0.999) b.clipTot = nu + CLIP_MS;
+    b.clip?.classList.toggle("aan", b.clipTot > nu);
   }
   if (balken.size) requestAnimationFrame(tik);
   else loopt = false;

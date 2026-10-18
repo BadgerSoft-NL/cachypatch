@@ -71,10 +71,10 @@ export function MidiMixer({
 }) {
   const zichtbaar = (s: MidiStrip) => !verborgen.has(s.sleutel);
   return (
-    <main className="mixer">
+    <main className="rijen midi">
       <section className="rij" aria-label="MIDI sources">
         <div className="rij-titel">Sources</div>
-        <div className="strips">
+        <div className="rij-strips">
           {model.bronnen.filter(zichtbaar).map((b) => {
             const kabel = bewerkt ? model.route(b, bewerkt) : undefined;
             const elders = model.bestemmingen
@@ -84,7 +84,7 @@ export function MidiMixer({
               <Kaart key={b.sleutel} s={b} verberg={verberg}>
                 {bewerkt ? (
                   <button
-                    className={`route${kabel ? " aan" : ""}`}
+                    className={`kies${kabel ? " aan" : ""}`}
                     aria-pressed={!!kabel}
                     onClick={() =>
                       kabel ? ontkoppel([kabel.id]) : verbind(b.poort.id, bewerkt.poort.id)
@@ -93,7 +93,7 @@ export function MidiMixer({
                     {bewerkt.naam}
                   </button>
                 ) : (
-                  <div className="route-leeg" />
+                  <div className="kies-leeg" />
                 )}
                 <div className="regel">{elders.length ? `also → ${elders.join(", ")}` : ""}</div>
                 <MidiBlok poorten={[b.poort.id]} />
@@ -105,14 +105,14 @@ export function MidiMixer({
       </section>
       <section className="rij laatste" aria-label="MIDI destinations">
         <div className="rij-titel">Destinations</div>
-        <div className="strips">
+        <div className="rij-strips">
           {model.bestemmingen.filter(zichtbaar).map((d) => {
             const gekozen = bewerkt?.sleutel === d.sleutel;
             const van = model.bronnen.filter((b) => model.route(b, d));
             return (
               <Kaart key={d.sleutel} s={d} verberg={verberg} gekozen={gekozen}>
                 <button
-                  className={`route${gekozen ? " aan" : " bewerk"}`}
+                  className={`kies${gekozen ? " aan" : ""}`}
                   aria-pressed={gekozen}
                   onClick={() => kiesBewerkt(d.sleutel)}
                 >
@@ -142,9 +142,9 @@ function Kaart({
   children: ReactNode;
 }) {
   return (
-    <article className={`strip midi${gekozen ? " gekozen" : ""}`}>
+    <article className={`strip strip-midi${gekozen ? " gekozen" : ""}`}>
       <div className="strip-kop" title={`${s.naam} — ${s.onder}`}>
-        <div className="strip-naam">{s.naam}</div>
+        <div className="naam">{s.naam}</div>
         <div className="strip-onder">{s.onder}</div>
         <button className="verberg" aria-label={`Hide ${s.naam}`} title="Hide" onClick={() => verberg(s.sleutel)}>
           ×
