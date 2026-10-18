@@ -1,8 +1,9 @@
 //! Proefopname: geeft de Rec bus drie kanalen, routeert de stream
 //! `cp-test-sinus` naar de stereobus Rec 1-2 en zijn linkerkanaal naar de
 //! monobus Rec 3 (op halve gain), en MIDI-poort `midi_out_0` naar de
-//! MIDI-ingang. Neemt drie seconden op en stopt. Met `extern` volgt hij de
-//! MIDI Clock van `midi_out_0`. Voor de ontwikkeling.
+//! MIDI-ingang. Record all neemt drie seconden op, waarbij Rec 3 na één
+//! seconde los stopt; daarna een losse take van Rec 3 alleen. Met `extern`
+//! volgt hij de MIDI Clock van `midi_out_0`. Voor de ontwikkeling.
 //!
 //! `cargo run --example opname [extern]`
 
@@ -65,7 +66,9 @@ fn main() {
         start_stop: false,
     }));
     g.doe(Opdracht::Start);
-    std::thread::sleep(Duration::from_secs(3));
+    std::thread::sleep(Duration::from_secs(1));
+    g.doe(Opdracht::StopBus("Rec 3".into()));
+    std::thread::sleep(Duration::from_secs(2));
     while let Ok(t) = trx.try_recv() {
         if volg_klok {
             println!("klok tijdens opname: {:?}", t.klok);
@@ -77,5 +80,16 @@ fn main() {
     while let Ok(t) = trx.try_recv() {
         laatste = Some(t);
     }
-    println!("{laatste:?}");
+    println!("Record all: {laatste:?}");
+
+    // Een losse take van één bus.
+    g.doe(Opdracht::StartBus(BusOpname { naam: "Rec 3".into(), kanalen: vec![2] }));
+    std::thread::sleep(Duration::from_secs(1));
+    g.doe(Opdracht::StopBus("Rec 3".into()));
+    std::thread::sleep(Duration::from_millis(1500));
+    let mut laatste = None;
+    while let Ok(t) = trx.try_recv() {
+        laatste = Some(t);
+    }
+    println!("Rec 3 los: {laatste:?}");
 }

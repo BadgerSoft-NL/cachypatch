@@ -4,19 +4,18 @@
 //! audio-ingangen (`rec_1`, `rec_2`, …) en een MIDI-ingang. De schil deelt de
 //! kanalen in bussen in: een stereopaar of twee mono's, zoals de uitgangen in
 //! CachyMix. Je routeert er bronnen heen zoals naar elke andere bestemming;
-//! PipeWire telt alles op één ingang op. Elke gewapende bus wordt één WAV,
-//! en omdat alle bussen uit één node en één process-ronde komen, liggen ze
-//! sample-precies gelijk. `node.autoconnect = false`: WirePlumber hangt er
-//! anders de standaard-microfoon aan.
+//! PipeWire telt alles op één ingang op. Elke bus neemt op als een eigen
+//! take: één WAV in een eigen map. **Record all** start alle bussen met
+//! bronnen samen in één take, en omdat ze uit één node en één process-ronde
+//! komen, liggen ze sample-precies gelijk. `node.autoconnect = false`:
+//! WirePlumber hangt er anders de standaard-microfoon aan.
 //!
-//! **MIDI** komt per bronpoort uit [`crate::midimeter`]: wat bij het starten
+//! **MIDI** komt per bronpoort uit [`crate::midimeter`]: wat bij Record all
 //! naar de MIDI-ingang van de bus gerouteerd is, krijgt een eigen spoor.
 //!
 //! Alle process-callbacks draaien op de loop van de graph-draad (geen
 //! `RT_PROCESS`). Ze schrijven nooit naar schijf: blokken gaan over een kanaal
-//! naar een eigen schrijfdraad. Alles start bij hetzelfde loop-moment, dus de
-//! sporen liggen binnen één quantum gelijk; bij het stoppen worden ze tot
-//! dezelfde lengte aangevuld.
+//! naar een schrijfdraad per take.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, VecDeque};
@@ -39,18 +38,20 @@ const PPQ: u32 = 480;
 const PULSEN: u32 = 24;
 const INTERN_BPM: f64 = 120.0;
 
-/// Gedeeld tussen de graph-draad en de process-callbacks: `None` = niet aan
-/// het opnemen.
-pub type Opnemer = Rc<RefCell<Option<Actief>>>;
+/// Gedeeld tussen de graph-draad en de process-callbacks: de lopende takes.
+/// Leeg = niet aan het opnemen.
+pub type Opnemer = Rc<RefCell<Vec<Actief>>>;
 
-/// Een lopende opname.
+/// Eén lopende take: een eigen map en schrijfdraad.
 pub struct Actief {
     pub tx: mpsc::Sender<Bericht>,
     pub t0: Instant,
-    /// Per gewapende bus: (spoor, welke kanalen van de Rec bus).
-    pub bussen: Vec<(usize, Vec<usize>)>,
+    /// Per bus die nog opneemt: (spoor, welke kanalen van de Rec bus, naam).
+    pub bussen: Vec<(usize, Vec<usize>, String)>,
     /// Per MIDI-bronpoort: spoornummer in het MIDI-bestand.
     pub midi: BTreeMap<u32, usize>,
+    /// Namen van de MIDI-sporen, voor het bestand.
+    pub midi_namen: Vec<String>,
     /// (spoor, seconden sinds t0, bytes).
     pub midi_events: Vec<(usize, f64, Vec<u8>)>,
     /// Klokpulsen van de externe klok, seconden sinds t0.
@@ -66,6 +67,8 @@ impl Actief {
 pub enum Bericht {
     /// Interleaved samples voor een spoor.
     Audio(usize, Vec<f32>),
+    /// Dit spoor is klaar (zijn bus is gestopt); de rest loopt door.
+    Sluit(usize),
     /// Klaar: dit MIDI-bestand nog schrijven (als er een is), dan afsluiten.
     Stop(Option<MidiBestand>),
 }
@@ -99,7 +102,7 @@ pub fn schrijver(
     let draad = std::thread::Builder::new()
         .name("pecanpatch-schrijver".into())
         .spawn(move || {
-            let mut wav = Vec::new();
+            let mut wav: Vec<Option<(hound::WavWriter<_>, u64)>> = Vec::new();
             for s in &sporen {
                 let spec = hound::WavSpec {
                     channels: s.kanalen,
@@ -108,17 +111,22 @@ pub fn schrijver(
                     sample_format: hound::SampleFormat::Float,
                 };
                 let pad = map.join(format!("{}.wav", veilig(&s.naam)));
-                wav.push((hound::WavWriter::create(pad, spec).map_err(|e| e.to_string())?, 0u64));
+                wav.push(Some((hound::WavWriter::create(pad, spec).map_err(|e| e.to_string())?, 0u64)));
             }
             let mut midi = None;
             for b in rx {
                 match b {
                     Bericht::Audio(i, samples) => {
-                        if let Some((w, n)) = wav.get_mut(i) {
+                        if let Some(Some((w, n))) = wav.get_mut(i) {
                             for s in &samples {
                                 w.write_sample(*s).map_err(|e| e.to_string())?;
                             }
                             *n += samples.len() as u64 / u64::from(sporen[i].kanalen.max(1));
+                        }
+                    }
+                    Bericht::Sluit(i) => {
+                        if let Some((w, _)) = wav.get_mut(i).and_then(Option::take) {
+                            w.finalize().map_err(|e| e.to_string())?;
                         }
                     }
                     Bericht::Stop(m) => {
@@ -127,14 +135,9 @@ pub fn schrijver(
                     }
                 }
             }
-            // Alle sporen even lang: aanvullen met stilte.
-            let langste = wav.iter().map(|(_, n)| *n).max().unwrap_or(0);
-            for (i, (w, n)) in wav.iter_mut().enumerate() {
-                for _ in 0..(langste - *n) * u64::from(sporen[i].kanalen) {
-                    w.write_sample(0.0f32).map_err(|e| e.to_string())?;
-                }
-            }
-            for (w, _) in wav {
+            // Wat samen liep, kwam uit dezelfde process-rondes en is dus even
+            // lang; wat eerder stopte, is eerder gesloten.
+            for (w, _) in wav.into_iter().flatten() {
                 w.finalize().map_err(|e| e.to_string())?;
             }
             if let Some(m) = midi {
@@ -527,7 +530,7 @@ unsafe extern "C" fn bus_process(data: *mut c_void, positie: *mut spa::sys::spa_
     }
     let BusBinnen { kanalen, gain, pieken, opnemer, .. } = &mut *b;
     let op = opnemer.try_borrow().ok();
-    let actief = op.as_ref().and_then(|o| o.as_ref());
+    let takes = op.as_deref().filter(|t| !t.is_empty());
     // Elk kanaal: gain erop, piek bijhouden, en bewaren als er opgenomen wordt.
     let mut blok: Vec<Vec<f32>> = Vec::new();
     for (i, &poort) in kanalen.iter().enumerate() {
@@ -536,29 +539,31 @@ unsafe extern "C" fn bus_process(data: *mut c_void, positie: *mut spa::sys::spa_
         let g = gain[i];
         let mut piek = pieken[i];
         let mut kanaal = Vec::new();
-        if actief.is_some() {
+        if takes.is_some() {
             kanaal.reserve(n);
         }
         for j in 0..n {
             // SAFETY: binnen de n samples die PipeWire gaf.
             let x = if p.is_null() { 0.0 } else { unsafe { *p.add(j) } } * g;
             piek = piek.max(x.abs());
-            if actief.is_some() {
+            if takes.is_some() {
                 kanaal.push(x);
             }
         }
         pieken[i] = piek;
         blok.push(kanaal);
     }
-    let Some(a) = actief else { return };
-    for (spoor, kan) in &a.bussen {
-        let mut uit = Vec::with_capacity(n * kan.len());
-        for j in 0..n {
-            for &c in kan {
-                uit.push(blok.get(c).and_then(|k| k.get(j)).copied().unwrap_or(0.0));
+    let Some(takes) = takes else { return };
+    for a in takes {
+        for (spoor, kan, _) in &a.bussen {
+            let mut uit = Vec::with_capacity(n * kan.len());
+            for j in 0..n {
+                for &c in kan {
+                    uit.push(blok.get(c).and_then(|k| k.get(j)).copied().unwrap_or(0.0));
+                }
             }
+            let _ = a.tx.send(Bericht::Audio(*spoor, uit));
         }
-        let _ = a.tx.send(Bericht::Audio(*spoor, uit));
     }
 }
 

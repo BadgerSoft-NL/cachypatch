@@ -203,6 +203,18 @@ button:disabled {
   background: var(--soort-donker);
 }
 
+/* Het label is ook een knop: naar de laatst gekozen weergave van die soort. */
+.keuze .keuze-label {
+  padding: 0 8px;
+  cursor: pointer;
+}
+
+.keuze.audio .keuze-label:hover,
+.keuze.midi .keuze-label:hover {
+  color: var(--soort);
+  background: color-mix(in srgb, var(--soort) 25%, var(--soort-donker));
+}
+
 .keuze.audio,
 .keuze.midi {
   border-color: color-mix(in srgb, var(--soort) 45%, var(--strip-rand));
@@ -1259,6 +1271,17 @@ button:disabled {
   color: #fff;
 }
 
+.knop-rec.elders {
+  background: color-mix(in srgb, var(--rood) 18%, var(--strip));
+  border-color: color-mix(in srgb, var(--rood) 35%, var(--strip-rand));
+  color: color-mix(in srgb, var(--zacht) 50%, var(--rood));
+}
+
+.knop-rec.aangepast {
+  border-color: var(--mute);
+  color: var(--mute);
+}
+
 .knop-koppel.aan {
   color: var(--accent);
 }
@@ -1267,14 +1290,101 @@ button:disabled {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 4px;
+  gap: 6px;
   flex: none;
-  width: 54px;
+  width: 66px;
 }
 
 .bus-erbij .knop {
   flex: none;
   height: 26px;
+}
+
+/* De rec-bussen staan in een eigen vak met een rode zweem, los van de
+   uitgangen. Gekozen is hier rood, net als R op de bronnen: groen hoort bij
+   de uitgang, rood bij de bus. */
+.bus-vak {
+  display: flex;
+  gap: 3px;
+  flex: none;
+  margin: 0 12px;
+  padding: 2px;
+  border: 1px solid color-mix(in srgb, var(--rood) 30%, var(--strip-rand));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--rood) 7%, transparent);
+}
+
+.strip-bus {
+  background: color-mix(in srgb, var(--rood) 6%, var(--strip));
+  border-color: color-mix(in srgb, var(--rood) 22%, var(--strip-rand));
+}
+
+.strip-bus .naam {
+  background: color-mix(in srgb, var(--rood) 16%, #1a1d22);
+}
+
+.strip-bus.gekozen {
+  border-color: var(--rood);
+  box-shadow: 0 0 0 1px var(--rood) inset;
+}
+
+.strip-bus.gekozen .naam {
+  background: color-mix(in srgb, var(--rood) 45%, #1a1d22);
+}
+
+.strip-bus .kies.aan {
+  background: var(--rood);
+  border-color: var(--rood);
+  color: #fff;
+}
+
+.strip-bus.kiesbaar:not(.gekozen):hover {
+  border-color: color-mix(in srgb, var(--rood) 60%, var(--zacht));
+}
+
+/* ● op een bus, en Record all naast het vak. */
+.knop-opneem,
+.rec-alles {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: #ff7a7e;
+  border-color: #5a2a2c;
+}
+
+.knop-opneem .rondje,
+.rec-alles .rondje {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.knop-opneem.aan,
+.rec-alles.aan {
+  background: var(--rood);
+  border-color: var(--rood);
+  color: #fff;
+}
+
+.knop-opneem.aan .rondje,
+.rec-alles.aan .rondje {
+  border-radius: 1px;
+}
+
+.bus-erbij .rec-alles {
+  height: 44px;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+/* Neemt hij op, dan gloeit hij. */
+.strip-bus.opname {
+  box-shadow:
+    0 0 0 1px var(--rood) inset,
+    0 0 10px color-mix(in srgb, var(--rood) 55%, transparent);
 }
 
 .gewapend {
