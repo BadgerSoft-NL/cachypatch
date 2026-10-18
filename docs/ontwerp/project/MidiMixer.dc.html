@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<title>CachyPatch — MIDI-mixer</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#111315}
+a{color:#3ccf6e}a:hover{color:#6fe394}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #111315; color: #e6e8ea; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 13px">
+
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; padding: 10px 20px; border-bottom: 1px solid #24282c; background: #16181b">
+<div style="display: flex; align-items: baseline; gap: 10px">
+<span style="font-weight: 700; font-size: 18px">CachyPatch</span>
+<span style="font-size: 15px; color: #8a9198">PipeWire</span>
+</div>
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 9px; height: 9px; border-radius: 50%; background: #3ccf6e"></span>Verbonden</span>
+<nav aria-label="Signaaltype" style="display: flex; gap: 2px; background: #0c0d0f; padding: 3px; border-radius: 6px">
+<a href="Main.dc.html" style="display: inline-flex; align-items: center; min-height: 38px; padding: 0 14px; border-radius: 4px; color: #8a9198; text-decoration: none">Audio</a>
+<a href="MidiMixer.dc.html" aria-current="page" style="display: inline-flex; align-items: center; min-height: 38px; padding: 0 14px; border-radius: 4px; background: #2a2f34; color: #e6e8ea; text-decoration: none; font-weight: 600">MIDI</a>
+</nav>
+<div style="flex: 1"></div>
+<span style="color: #8a9198">Routing naar <strong style="color: #3ccf6e">{{targetName}}</strong></span>
+<button onClick="{{askClear}}" style="min-height: 40px; padding: 0 14px; border: 1px solid #2f3439; border-radius: 6px; background: #1d2023; color: #e6e8ea; font: inherit; cursor: pointer">Alles loskoppelen</button>
+<button style="min-height: 40px; padding: 0 14px; border: 1px solid #2f3439; border-radius: 6px; background: #1d2023; color: #e6e8ea; font: inherit; cursor: pointer">Verborgen (4)</button>
+<nav aria-label="Weergave" style="display: flex; gap: 2px; background: #0c0d0f; padding: 3px; border-radius: 6px">
+<a href="MidiMixer.dc.html" aria-current="page" style="display: inline-flex; align-items: center; min-height: 38px; padding: 0 14px; border-radius: 4px; background: #2a2f34; color: #e6e8ea; text-decoration: none; font-weight: 600">Mixer</a>
+<a href="MidiPatchbay.dc.html" style="display: inline-flex; align-items: center; min-height: 38px; padding: 0 14px; border-radius: 4px; color: #8a9198; text-decoration: none">Patchbay</a>
+</nav>
+</header>
+
+<sc-if value="{{confirmClear}}" hint-placeholder-val="{{ false }}">
+<div role="alertdialog" aria-label="Alles loskoppelen bevestigen" style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; padding: 10px 20px; background: #2a2116; border-bottom: 1px solid #5a4421; color: #f5d9a8">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f2a541" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 16H3z"></path><path d="M12 10v4M12 17h.01"></path></svg>
+<span><strong>{{linkCount}} MIDI-links</strong> worden verwijderd. WirePlumber legt geen MIDI-links terug, dus alles staat daarna los.</span>
+<span style="flex: 1"></span>
+<button onClick="{{cancelClear}}" style="min-height: 40px; padding: 0 14px; border: 1px solid #5a4421; border-radius: 6px; background: transparent; color: #f5d9a8; font: inherit; cursor: pointer">Annuleren</button>
+<button onClick="{{clearAll}}" style="min-height: 40px; padding: 0 14px; border: 0; border-radius: 6px; background: #f2a541; color: #1a1206; font: inherit; font-weight: 700; cursor: pointer">Loskoppelen</button>
+</div>
+</sc-if>
+
+<section aria-label="Opname" style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 22px; padding: 10px 20px; border-bottom: 1px solid #24282c; background: #141618">
+<button onClick="{{toggleRec}}" aria-pressed="{{recording}}" style="{{recBtnStyle}}"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="currentColor"></circle></svg>{{recLabel}}</button>
+<div style="display: flex; flex-direction: column; gap: 2px">
+<span style="{{recTimeStyle}}">{{recTime}}</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #6c737a">~/Opnames/2026-10-18_1043/</span>
+</div>
+<div role="group" aria-label="Formaat" style="display: flex; align-items: center; gap: 14px; padding-left: 18px; border-left: 1px solid #24282c">
+<label style="display: flex; align-items: center; gap: 6px; min-height: 40px; cursor: pointer"><input type="checkbox" checked style="width: 16px; height: 16px; accent-color: #3ccf6e">.mid</label>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8a9198">SMF type 1 · track per bron</span>
+</div>
+<div role="group" aria-label="Klok" style="display: flex; align-items: center; gap: 12px; padding-left: 18px; border-left: 1px solid #24282c">
+<label for="mclock" style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #6c737a">Klok</label>
+<select id="mclock" style="min-height: 40px; padding: 0 10px; background: #1d2023; color: #e6e8ea; border: 1px solid #2f3439; border-radius: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 12px">
+<option>Extern: Composition Tutor</option>
+<option>Intern</option>
+<option>Extern: Roland FP-30</option>
+</select>
+<span style="display: flex; align-items: center; gap: 8px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 18px; font-weight: 500">124.0</span><span style="color: #8a9198">BPM</span><span style="display: flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px; background: #1f3a28; color: #6fe394; font-size: 11px"><span style="width: 7px; height: 7px; border-radius: 50%; background: #3ccf6e"></span>lock</span></span>
+<label style="display: flex; align-items: center; gap: 6px; min-height: 40px; cursor: pointer"><input type="checkbox" checked style="width: 16px; height: 16px; accent-color: #3ccf6e">Start/stop op MIDI Start</label>
+</div>
+</section>
+
+<main style="padding: 12px 16px 40px; display: flex; flex-direction: column; gap: 10px">
+
+<section aria-label="MIDI-bronnen" style="display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid #1f2326">
+<div style="writing-mode: vertical-rl; transform: rotate(180deg); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #6c737a; text-align: center">Bronnen</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<sc-for list="{{sources}}" as="s" hint-placeholder-count="4">
+<article style="width: 140px; background: #1b1e21; border: 1px solid #272b2f; border-radius: 6px; padding: 7px; box-sizing: border-box; display: flex; flex-direction: column; gap: 7px">
+<div style="background: #24282c; border-radius: 4px; padding: 5px 4px; text-align: center">
+<div style="font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{s.name}}</div>
+<div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #8a9198">{{s.sub}}</div>
+</div>
+<button onClick="{{s.toggle}}" aria-pressed="{{s.on}}" style="{{s.btnStyle}}">{{targetName}}</button>
+<div style="min-height: 14px; font-size: 10px; text-align: center; color: #8a9198; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{s.note}}</div>
+<div role="img" aria-label="{{s.meterLabel}}" style="display: flex; flex-direction: column; gap: 8px; padding: 8px 6px; background: #141618; border-radius: 4px">
+<div style="display: flex; align-items: center; gap: 8px">
+<span style="{{s.ledStyle}}"></span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #8a9198">{{s.rate}}</span>
+</div>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px">
+<sc-for list="{{s.chans}}" as="c" hint-placeholder-count="16">
+<span style="{{c.style}}">{{c.n}}</span>
+</sc-for>
+</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px">
+<sc-for list="{{s.types}}" as="t" hint-placeholder-count="4">
+<span style="{{t.style}}">{{t.label}}</span>
+</sc-for>
+</div>
+<div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #c9cdd1; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{s.last}}</div>
+</div>
+</article>
+</sc-for>
+</div>
+</section>
+
+<section aria-label="MIDI-bestemmingen" style="display: flex; gap: 12px; padding: 10px 0">
+<div style="writing-mode: vertical-rl; transform: rotate(180deg); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #6c737a; text-align: center">Bestemmingen</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<sc-for list="{{dests}}" as="d" hint-placeholder-count="4">
+<article style="{{d.cardStyle}}">
+<div style="background: #24282c; border-radius: 4px; padding: 5px 4px; text-align: center">
+<div style="font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{d.name}}</div>
+<div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #8a9198">{{d.sub}}</div>
+</div>
+<button onClick="{{d.pick}}" aria-pressed="{{d.selected}}" style="{{d.btnStyle}}">{{d.btnLabel}}</button>
+<div style="{{d.countStyle}}">{{d.count}}</div>
+<div role="img" aria-label="{{d.meterLabel}}" style="display: flex; flex-direction: column; gap: 8px; padding: 8px 6px; background: #141618; border-radius: 4px">
+<div style="display: flex; align-items: center; gap: 8px">
+<span style="{{d.ledStyle}}"></span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #8a9198">{{d.rate}}</span>
+</div>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px">
+<sc-for list="{{d.chans}}" as="c" hint-placeholder-count="16">
+<span style="{{c.style}}">{{c.n}}</span>
+</sc-for>
+</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px">
+<sc-for list="{{d.types}}" as="t" hint-placeholder-count="4">
+<span style="{{t.style}}">{{t.label}}</span>
+</sc-for>
+</div>
+<div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #c9cdd1; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{d.last}}</div>
+</div>
+</article>
+</sc-for>
+</div>
+</section>
+
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1000}}'>
+var START = { fp30: ['surge', 'rec'], tutor: ['fp30in', 'rec'], vkbd: [], launch: ['tutorin'] };
+var SOURCES = [
+  { id: 'fp30', name: 'Roland FP-30', sub: 'apparaat · USB', ch: [1], ty: ['NOTE', 'CC'], last: 'Note On E4 · 76', rate: '38 ev/s' },
+  { id: 'launch', name: 'Launchkey', sub: 'apparaat · USB', ch: [10], ty: ['CC'], last: 'CC 21 = 64', rate: '4 ev/s' },
+  { id: 'tutor', name: 'Composition Tutor', sub: 'app', ch: [2], ty: ['NOTE', 'CLK'], last: 'Note Off C3', rate: '52 ev/s' },
+  { id: 'vkbd', name: 'Virt. keyboard', sub: 'app', ch: [], ty: [], last: '—', rate: 'stil' }
+];
+var DESTS = [
+  { id: 'surge', name: 'Surge XT', sub: 'synth' },
+  { id: 'tutorin', name: 'Composition Tutor', sub: 'app · in' },
+  { id: 'fp30in', name: 'Roland FP-30', sub: 'apparaat · klank' },
+  { id: 'rec', name: 'Opname-bus', sub: 'CachyPatch · .mid' }
+];
+var TYPES = ['NOTE', 'CC', 'PB', 'CLK'];
+function clone(o) { return JSON.parse(JSON.stringify(o)); }
+function led(on) { return 'width:10px;height:10px;border-radius:50%;flex:none;' + (on ? 'background:#3ccf6e;box-shadow:0 0 8px #3ccf6e' : 'background:#2a2f34'); }
+function chans(active) {
+  var out = [];
+  for (var i = 1; i <= 16; i++) {
+    var on = active.indexOf(i) >= 0;
+    out.push({ n: i, style: "font-family:'IBM Plex Mono',monospace;font-size:9px;line-height:16px;height:16px;text-align:center;border-radius:2px;" + (on ? 'background:#3ccf6e;color:#0d1a12;font-weight:700' : 'background:#22262a;color:#5a6168') });
+  }
+  return out;
+}
+function types(active) {
+  return TYPES.map(function (t) {
+    var on = active.indexOf(t) >= 0;
+    return { label: t, style: "font-family:'IBM Plex Mono',monospace;font-size:9px;line-height:16px;text-align:center;border-radius:3px;" + (on ? 'background:#1f3a28;color:#6fe394' : 'background:transparent;color:#5a6168;border:1px solid #2a2f34;box-sizing:border-box') };
+  });
+}
+function uniq(a) { return a.filter(function (x, i) { return a.indexOf(x) === i; }).sort(function (x, y) { return typeof x === 'number' ? x - y : 0; }); }
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { target: 'surge', routes: clone(START), recording: false, confirmClear: false };
+  }
+  toggle(id) {
+    var routes = clone(this.state.routes);
+    var list = routes[id] || [];
+    var i = list.indexOf(this.state.target);
+    if (i >= 0) list.splice(i, 1); else list.push(this.state.target);
+    routes[id] = list;
+    this.setState({ routes: routes });
+  }
+  renderVals() {
+    var self = this;
+    var target = this.state.target;
+    var routes = this.state.routes;
+    var rec = this.state.recording;
+    var targetName = DESTS.filter(function (d) { return d.id === target; })[0].name;
+    var linkCount = Object.keys(routes).reduce(function (n, k) { return n + routes[k].length; }, 0);
+    var sources = SOURCES.map(function (s) {
+      var list = routes[s.id] || [];
+      var on = list.indexOf(target) >= 0;
+      var others = list.filter(function (x) { return x !== target; }).map(function (x) {
+        return DESTS.filter(function (d) { return d.id === x; })[0].name;
+      });
+      var active = s.ch.length > 0;
+      return {
+        name: s.name, sub: s.sub, on: on,
+        btnStyle: on
+          ? 'min-height:40px;border:0;border-radius:4px;background:#3ccf6e;color:#0d1a12;font:inherit;font-weight:700;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 6px'
+          : 'min-height:40px;border:1px solid #2f3439;border-radius:4px;background:#141618;color:#6c737a;font:inherit;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 6px',
+        note: others.length ? 'ook → ' + others.join(', ') : '',
+        ledStyle: led(active), rate: s.rate,
+        chans: chans(s.ch), types: types(s.ty), last: s.last,
+        meterLabel: active ? 'Activiteit op kanaal ' + s.ch.join(', ') : 'Geen activiteit',
+        toggle: function () { self.toggle(s.id); }
+      };
+    });
+    var dests = DESTS.map(function (d) {
+      var sel = d.id === target;
+      var feeding = SOURCES.filter(function (s) { return (routes[s.id] || []).indexOf(d.id) >= 0; });
+      var ch = uniq([].concat.apply([], feeding.map(function (s) { return s.ch; })));
+      var ty = uniq([].concat.apply([], feeding.map(function (s) { return s.ty; })));
+      var active = ch.length > 0;
+      var lastSrc = feeding.filter(function (s) { return s.ch.length; })[0];
+      var isRec = d.id === 'rec' && rec;
+      var n = feeding.length;
+      return {
+        name: d.name, sub: d.sub, selected: sel,
+        btnLabel: sel ? 'bewerken' : 'bewerk',
+        btnStyle: sel
+          ? 'min-height:40px;border:0;border-radius:4px;background:#3ccf6e;color:#0d1a12;font:inherit;font-weight:700;cursor:pointer'
+          : 'min-height:40px;border:1px solid #2f3439;border-radius:4px;background:#141618;color:#b9bec3;font:inherit;cursor:pointer',
+        cardStyle: 'width:140px;background:#1b1e21;border-radius:6px;padding:7px;box-sizing:border-box;display:flex;flex-direction:column;gap:7px;border:' + (sel ? '2px solid #3ccf6e' : (isRec ? '2px solid #e5484d' : '1px solid #272b2f')),
+        count: isRec ? '● opname · ' + n + ' bronnen' : (n === 1 ? '1 bron' : n + ' bronnen'),
+        countStyle: 'min-height:14px;font-size:10px;text-align:center;white-space:nowrap;color:' + (isRec ? '#ff7a7e' : '#8a9198'),
+        ledStyle: led(active), rate: active ? 'ontvangt' : 'stil',
+        chans: chans(ch), types: types(ty), last: lastSrc ? lastSrc.last : '—',
+        meterLabel: active ? 'Ontvangt op kanaal ' + ch.join(', ') : 'Geen activiteit',
+        pick: function () { self.setState({ target: d.id }); }
+      };
+    });
+    return {
+      targetName: targetName,
+      sources: sources,
+      dests: dests,
+      linkCount: linkCount,
+      confirmClear: this.state.confirmClear,
+      askClear: function () { self.setState({ confirmClear: true }); },
+      cancelClear: function () { self.setState({ confirmClear: false }); },
+      clearAll: function () { self.setState({ routes: { fp30: [], tutor: [], vkbd: [], launch: [] }, confirmClear: false }); },
+      recording: rec,
+      recLabel: rec ? 'Stop' : 'Opnemen',
+      recBtnStyle: 'display:flex;align-items:center;gap:8px;min-height:44px;padding:0 18px;border-radius:6px;font:inherit;font-weight:700;cursor:pointer;' + (rec ? 'background:#e5484d;color:#fff;border:0' : 'background:#1d2023;color:#ff7a7e;border:1px solid #5a2a2c'),
+      recTime: rec ? '00:02:14.3' : '00:00:00.0',
+      recTimeStyle: "font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:500;color:" + (rec ? '#ff7a7e' : '#8a9198'),
+      toggleRec: function () { self.setState({ recording: !self.state.recording }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

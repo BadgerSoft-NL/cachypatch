@@ -1,0 +1,24 @@
+[package]
+name = "cachypatch"
+version = "0.1.0"
+description = "Patchbay en mixer voor PipeWire"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/BadgerSoft-NL/cachypatch"
+authors = ["Jetse"]
+edition = "2021"
+
+[lib]
+name = "cachypatch_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+# Twee vensters die om beurten links leggen en weghalen helpt niemand.
+tauri-plugin-single-instance = "2"
+# Dezelfde versie als miau-core, zodat die er later naast kan.
+pipewire = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

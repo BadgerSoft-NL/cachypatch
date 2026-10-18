@@ -1,0 +1,337 @@
+/* Kleuren en maten uit het ontwerp (docs/ontwerp). */
+:root {
+  --achter: #111315;
+  --kop: #16181b;
+  --balk: #141618;
+  --module: #1b1e21;
+  --module-rand: #2c3136;
+  --lijn: #24282c;
+  --lijn-zacht: #262a2e;
+  --knop: #1d2023;
+  --knop-rand: #2f3439;
+  --nav: #0c0d0f;
+  --gekozen: #2a2f34;
+  --tekst: #e6e8ea;
+  --poort: #b9bec3;
+  --zacht: #8a9198;
+  --zachter: #6c737a;
+  --kabel: #8a9198;
+  --open: #4a5057;
+  --groen: #3ccf6e;
+  --rood: #e5484d;
+
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: 13px;
+  color: var(--tekst);
+  background: var(--achter);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--achter);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.mono,
+.onder,
+.poorten,
+.klok {
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.zacht {
+  color: var(--zacht);
+}
+
+.vul {
+  flex: 1;
+}
+
+.app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* --- Kop --- */
+
+.kop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 24px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--lijn);
+  background: var(--kop);
+}
+
+.merk {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.merk .naam {
+  font-weight: 700;
+  font-size: 18px;
+}
+
+.merk .pw {
+  font-size: 15px;
+  color: var(--zacht);
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status .lamp {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--groen);
+}
+
+.status.los .lamp {
+  background: var(--rood);
+}
+
+.klok {
+  font-size: 12px;
+  color: var(--zacht);
+}
+
+.keuze {
+  display: flex;
+  gap: 2px;
+  background: var(--nav);
+  padding: 3px;
+  border-radius: 6px;
+}
+
+.keuze button {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--zacht);
+}
+
+.keuze button[aria-pressed="true"] {
+  background: var(--gekozen);
+  color: var(--tekst);
+  font-weight: 600;
+}
+
+.knop {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--knop-rand);
+  border-radius: 6px;
+  background: var(--knop);
+}
+
+.knop:hover,
+.keuze button:hover {
+  color: var(--tekst);
+}
+
+/* --- Patchbay --- */
+
+.patchbay {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+}
+
+.vlak {
+  position: relative;
+  min-width: 100%;
+}
+
+.kabels {
+  position: absolute;
+  left: 0;
+  top: 0;
+  fill: none;
+  stroke: var(--kabel);
+  stroke-width: 2.5;
+  pointer-events: none;
+}
+
+.kopje {
+  position: absolute;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--zachter);
+}
+
+.module {
+  position: absolute;
+  background: var(--module);
+  border: 1px solid var(--module-rand);
+  border-radius: 8px;
+}
+
+.module.sleept {
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
+}
+
+.module > header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 45px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--lijn-zacht);
+  cursor: grab;
+}
+
+.module.sleept > header {
+  cursor: grabbing;
+}
+
+.tegel {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.namen {
+  flex: 1;
+  min-width: 0;
+}
+
+.namen .titel {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.namen .onder {
+  font-size: 10px;
+  color: var(--zacht);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.module.stil .titel {
+  color: #9aa1a8;
+}
+
+.module.stil .onder {
+  color: var(--zachter);
+}
+
+.poorten {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  font-size: 12px;
+  color: var(--poort);
+}
+
+.module.stil .poorten {
+  color: var(--zacht);
+}
+
+.poorten li {
+  position: relative;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+}
+
+.stip {
+  position: absolute;
+  top: 8px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--achter);
+  border: 2px solid var(--open);
+}
+
+.stip.vol {
+  background: var(--kabel);
+  border-color: var(--achter);
+}
+
+.poorten li.links .stip {
+  right: -7px;
+}
+
+.poorten li.rechts .stip {
+  left: -7px;
+}
+
+/* --- Voet --- */
+
+.voet {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 10px 20px;
+  border-top: 1px solid var(--lijn);
+  background: var(--achter);
+  color: var(--poort);
+}
+
+.legenda {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legenda .lijn {
+  width: 32px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--kabel);
+}
+
+.legenda .stip {
+  position: static;
+}
+
+/* --- Nog niet gebouwd --- */
+
+.leeg {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.leeg p {
+  margin: 0;
+}

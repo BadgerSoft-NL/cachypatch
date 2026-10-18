@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<title>CachyPatch — MIDI</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#111315}
+a{color:#3ccf6e}a:hover{color:#6fe394}
+</style>
+</helmet>
+<div style="width: 1280px; height: 800px; overflow: hidden; background: #111315; color: #e6e8ea; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 13px; display: flex; flex-direction: column">
+
+<header style="display: flex; align-items: center; gap: 24px; padding: 10px 20px; border-bottom: 1px solid #24282c; background: #16181b">
+<div style="display: flex; align-items: baseline; gap: 10px">
+<span style="font-weight: 700; font-size: 18px">CachyPatch</span>
+<span style="font-size: 15px; color: #8a9198">PipeWire</span>
+</div>
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 9px; height: 9px; border-radius: 50%; background: #3ccf6e"></span>Verbonden</span>
+<nav aria-label="Signaaltype" style="display: flex; gap: 2px; background: #0c0d0f; padding: 3px; border-radius: 6px">
+<button aria-pressed="false" style="min-height: 38px; padding: 0 14px; border: 0; border-radius: 4px; background: transparent; color: #8a9198; font: inherit; cursor: pointer">Audio</button>
+<button aria-pressed="true" style="min-height: 38px; padding: 0 14px; border: 0; border-radius: 4px; background: #2a2f34; color: #e6e8ea; font: inherit; font-weight: 600; cursor: pointer">MIDI</button>
+</nav>
+<div style="flex: 1"></div>
+<nav aria-label="Weergave" style="display: flex; gap: 2px; background: #0c0d0f; padding: 3px; border-radius: 6px">
+<a href="MidiMixer.dc.html" style="display: inline-flex; align-items: center; min-height: 38px; padding: 0 14px; border-radius: 4px; color: #8a9198; text-decoration: none">Mixer</a>
+<a href="MidiPatchbay.dc.html" aria-current="page" style="display: inline-flex; align-items: center; min-height: 38px; padding: 0 14px; border-radius: 4px; background: #2a2f34; color: #e6e8ea; text-decoration: none; font-weight: 600">Patchbay</a>
+</nav>
+<button style="min-height: 40px; padding: 0 14px; border: 1px solid #2f3439; border-radius: 6px; background: #1d2023; color: #e6e8ea; font: inherit; cursor: pointer">Opnieuw ordenen</button>
+</header>
+
+<div style="position: relative; flex: 1">
+
+<svg width="1280" height="735" viewBox="0 0 1280 735" fill="none" aria-hidden="true" style="position: absolute; left: 0; top: 0">
+<g stroke="#8a9198" stroke-width="2.5">
+<path d="M380 125 C 640 125, 640 125, 900 125"></path>
+<path d="M380 125 C 640 125, 640 249, 900 249"></path>
+<path d="M380 281 C 640 281, 640 405, 900 405"></path>
+<path d="M380 405 C 640 405, 640 125, 900 125"></path>
+</g>
+</svg>
+
+<div style="position: absolute; left: 60px; top: 22px; font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #6c737a">Apparaten · uit</div>
+<div style="position: absolute; left: 60px; top: 180px; font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #6c737a">Apps · uit</div>
+<div style="position: absolute; left: 900px; top: 22px; font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #6c737a">Apps · in</div>
+<div style="position: absolute; left: 900px; top: 304px; font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #6c737a">Apparaten · in</div>
+
+<!-- FP-30 out -->
+<div style="position: absolute; left: 60px; top: 48px; width: 320px; box-sizing: border-box; background: #1b1e21; border: 1px solid #2c3136; border-radius: 8px">
+<div style="display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px; border-bottom: 1px solid #262a2e">
+<div style="width: 26px; height: 26px; border-radius: 6px; background: #262a2e; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b9bec3" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="1.5"></rect><path d="M7 6v7M12 6v7M17 6v7"></path></svg></div>
+<div style="flex: 1; min-width: 0"><div style="font-weight: 600">Roland FP-30</div><div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #8a9198">USB-MIDI</div></div>
+</div>
+<div style="position: relative; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 11px">
+<div style="display: flex; align-items: center; gap: 8px"><span role="img" aria-label="Activiteit" style="width: 10px; height: 10px; border-radius: 50%; background: #3ccf6e; box-shadow: 0 0 8px #3ccf6e"></span><span style="color: #b9bec3">out</span><span style="margin-left: auto; color: #e6e8ea">Note On E4 · vel 76</span></div>
+<div style="display: flex; align-items: center; gap: 2px" role="img" aria-label="Actief op kanaal 1">
+<span style="width: 7px; height: 7px; background: #3ccf6e"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span>
+<span style="flex: 1"></span>
+<span style="padding: 1px 5px; border-radius: 3px; background: #1f3a28; color: #6fe394">NOTE</span><span style="padding: 1px 5px; border-radius: 3px; background: #1f3a28; color: #6fe394">CC</span><span style="padding: 1px 5px; border-radius: 3px; background: #1b1e21; color: #5a6168; border: 1px solid #2a2f34">PB</span><span style="padding: 1px 5px; border-radius: 3px; background: #1b1e21; color: #5a6168; border: 1px solid #2a2f34">CLK</span>
+</div>
+<span style="position: absolute; right: -7px; top: 22px; width: 12px; height: 12px; border-radius: 50%; background: #8a9198; border: 2px solid #111315; box-sizing: border-box"></span>
+</div>
+</div>
+
+<!-- Composition Tutor out -->
+<div style="position: absolute; left: 60px; top: 204px; width: 320px; box-sizing: border-box; background: #1b1e21; border: 1px solid #2c3136; border-radius: 8px">
+<div style="display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px; border-bottom: 1px solid #262a2e">
+<div style="width: 26px; height: 26px; border-radius: 6px; background: #22303d; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7fb6e6" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg></div>
+<div style="flex: 1; min-width: 0"><div style="font-weight: 600">Composition Tutor</div><div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #8a9198">app</div></div>
+</div>
+<div style="position: relative; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 11px">
+<div style="display: flex; align-items: center; gap: 8px"><span role="img" aria-label="Activiteit" style="width: 10px; height: 10px; border-radius: 50%; background: #3ccf6e; box-shadow: 0 0 8px #3ccf6e"></span><span style="color: #b9bec3">out</span><span style="margin-left: auto; color: #e6e8ea">Note Off C3</span></div>
+<div style="display: flex; align-items: center; gap: 2px" role="img" aria-label="Actief op kanaal 2">
+<span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #3ccf6e"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span>
+<span style="flex: 1"></span>
+<span style="padding: 1px 5px; border-radius: 3px; background: #1f3a28; color: #6fe394">NOTE</span><span style="padding: 1px 5px; border-radius: 3px; background: #1b1e21; color: #5a6168; border: 1px solid #2a2f34">CC</span><span style="padding: 1px 5px; border-radius: 3px; background: #1b1e21; color: #5a6168; border: 1px solid #2a2f34">PB</span><span style="padding: 1px 5px; border-radius: 3px; background: #1f3a28; color: #6fe394">CLK</span>
+</div>
+<span style="position: absolute; right: -7px; top: 22px; width: 12px; height: 12px; border-radius: 50%; background: #8a9198; border: 2px solid #111315; box-sizing: border-box"></span>
+</div>
+</div>
+
+<!-- Virtual keyboard out (idle) -->
+<div style="position: absolute; left: 60px; top: 328px; width: 320px; box-sizing: border-box; background: #1b1e21; border: 1px solid #2c3136; border-radius: 8px">
+<div style="display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px; border-bottom: 1px solid #262a2e">
+<div style="width: 26px; height: 26px; border-radius: 6px; background: #2a2a40; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a5a8f0" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="1.5"></rect><path d="M7 6v7M12 6v7M17 6v7"></path></svg></div>
+<div style="flex: 1; min-width: 0"><div style="font-weight: 600; color: #9aa1a8">Virtueel keyboard</div><div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #6c737a">app · stil</div></div>
+</div>
+<div style="position: relative; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 11px">
+<div style="display: flex; align-items: center; gap: 8px"><span role="img" aria-label="Geen activiteit" style="width: 10px; height: 10px; border-radius: 50%; background: #2a2f34"></span><span style="color: #8a9198">out</span><span style="margin-left: auto; color: #5a6168">—</span></div>
+<div style="display: flex; align-items: center; gap: 2px" role="img" aria-label="Geen kanalen actief">
+<span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span>
+<span style="flex: 1"></span>
+<span style="padding: 1px 5px; border-radius: 3px; background: #1b1e21; color: #5a6168; border: 1px solid #2a2f34">NOTE</span><span style="padding: 1px 5px; border-radius: 3px; background: #1b1e21; color: #5a6168; border: 1px solid #2a2f34">CC</span><span style="padding: 1px 5px; border-radius: 3px; background: #1b1e21; color: #5a6168; border: 1px solid #2a2f34">PB</span><span style="padding: 1px 5px; border-radius: 3px; background: #1b1e21; color: #5a6168; border: 1px solid #2a2f34">CLK</span>
+</div>
+<span style="position: absolute; right: -7px; top: 22px; width: 12px; height: 12px; border-radius: 50%; background: #8a9198; border: 2px solid #111315; box-sizing: border-box"></span>
+</div>
+</div>
+
+<!-- Surge XT in -->
+<div style="position: absolute; left: 900px; top: 48px; width: 320px; box-sizing: border-box; background: #1b1e21; border: 1px solid #2c3136; border-radius: 8px">
+<div style="display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px; border-bottom: 1px solid #262a2e">
+<div style="width: 26px; height: 26px; border-radius: 6px; background: #3a2a1c; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f0a36b" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M2 12c2-6 4-6 6 0s4 6 6 0 4-6 6 0"></path></svg></div>
+<div style="flex: 1; min-width: 0"><div style="font-weight: 600">Surge XT</div><div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #8a9198">synth</div></div>
+</div>
+<div style="position: relative; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 11px">
+<span style="position: absolute; left: -7px; top: 22px; width: 12px; height: 12px; border-radius: 50%; background: #8a9198; border: 2px solid #111315; box-sizing: border-box"></span>
+<div style="display: flex; align-items: center; gap: 8px"><span role="img" aria-label="Activiteit" style="width: 10px; height: 10px; border-radius: 50%; background: #3ccf6e; box-shadow: 0 0 8px #3ccf6e"></span><span style="color: #b9bec3">in</span><span style="margin-left: auto; color: #e6e8ea">Note On E4 · vel 76</span></div>
+<div style="display: flex; align-items: center; gap: 2px" role="img" aria-label="Ontvangt op kanaal 1">
+<span style="width: 7px; height: 7px; background: #3ccf6e"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span>
+<span style="flex: 1"></span>
+<span style="padding: 1px 5px; border-radius: 3px; background: #1f3a28; color: #6fe394">NOTE</span><span style="padding: 1px 5px; border-radius: 3px; background: #1f3a28; color: #6fe394">CC</span><span style="padding: 1px 5px; border-radius: 3px; background: #1b1e21; color: #5a6168; border: 1px solid #2a2f34">PB</span><span style="padding: 1px 5px; border-radius: 3px; background: #1b1e21; color: #5a6168; border: 1px solid #2a2f34">CLK</span>
+</div>
+</div>
+</div>
+
+<!-- Composition Tutor in -->
+<div style="position: absolute; left: 900px; top: 172px; width: 320px; box-sizing: border-box; background: #1b1e21; border: 1px solid #2c3136; border-radius: 8px">
+<div style="display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px; border-bottom: 1px solid #262a2e">
+<div style="width: 26px; height: 26px; border-radius: 6px; background: #22303d; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7fb6e6" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg></div>
+<div style="flex: 1; min-width: 0"><div style="font-weight: 600">Composition Tutor</div><div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #8a9198">app</div></div>
+</div>
+<div style="position: relative; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 11px">
+<span style="position: absolute; left: -7px; top: 22px; width: 12px; height: 12px; border-radius: 50%; background: #8a9198; border: 2px solid #111315; box-sizing: border-box"></span>
+<div style="display: flex; align-items: center; gap: 8px"><span role="img" aria-label="Activiteit" style="width: 10px; height: 10px; border-radius: 50%; background: #3ccf6e; box-shadow: 0 0 8px #3ccf6e"></span><span style="color: #b9bec3">in</span><span style="margin-left: auto; color: #e6e8ea">Note On E4 · vel 76</span></div>
+<div style="display: flex; align-items: center; gap: 2px" role="img" aria-label="Ontvangt op kanaal 1">
+<span style="width: 7px; height: 7px; background: #3ccf6e"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span>
+<span style="flex: 1"></span>
+<span style="padding: 1px 5px; border-radius: 3px; background: #1f3a28; color: #6fe394">NOTE</span><span style="padding: 1px 5px; border-radius: 3px; background: #1f3a28; color: #6fe394">CC</span><span style="padding: 1px 5px; border-radius: 3px; background: #1b1e21; color: #5a6168; border: 1px solid #2a2f34">PB</span><span style="padding: 1px 5px; border-radius: 3px; background: #1b1e21; color: #5a6168; border: 1px solid #2a2f34">CLK</span>
+</div>
+</div>
+</div>
+
+<!-- FP-30 in -->
+<div style="position: absolute; left: 900px; top: 328px; width: 320px; box-sizing: border-box; background: #1b1e21; border: 1px solid #2c3136; border-radius: 8px">
+<div style="display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px; border-bottom: 1px solid #262a2e">
+<div style="width: 26px; height: 26px; border-radius: 6px; background: #262a2e; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b9bec3" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="1.5"></rect><path d="M7 6v7M12 6v7M17 6v7"></path></svg></div>
+<div style="flex: 1; min-width: 0"><div style="font-weight: 600">Roland FP-30</div><div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #8a9198">USB-MIDI</div></div>
+</div>
+<div style="position: relative; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 11px">
+<span style="position: absolute; left: -7px; top: 22px; width: 12px; height: 12px; border-radius: 50%; background: #8a9198; border: 2px solid #111315; box-sizing: border-box"></span>
+<div style="display: flex; align-items: center; gap: 8px"><span role="img" aria-label="Activiteit" style="width: 10px; height: 10px; border-radius: 50%; background: #3ccf6e; box-shadow: 0 0 8px #3ccf6e"></span><span style="color: #b9bec3">in</span><span style="margin-left: auto; color: #e6e8ea">Note Off C3</span></div>
+<div style="display: flex; align-items: center; gap: 2px" role="img" aria-label="Ontvangt op kanaal 2">
+<span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #3ccf6e"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span>
+<span style="flex: 1"></span>
+<span style="padding: 1px 5px; border-radius: 3px; background: #1f3a28; color: #6fe394">NOTE</span><span style="padding: 1px 5px; border-radius: 3px; background: #1b1e21; color: #5a6168; border: 1px solid #2a2f34">CC</span><span style="padding: 1px 5px; border-radius: 3px; background: #1b1e21; color: #5a6168; border: 1px solid #2a2f34">PB</span><span style="padding: 1px 5px; border-radius: 3px; background: #1f3a28; color: #6fe394">CLK</span>
+</div>
+</div>
+</div>
+
+<div style="position: absolute; left: 60px; right: 60px; bottom: 14px; display: flex; align-items: center; gap: 28px; padding-top: 12px; border-top: 1px solid #1f2326; font-size: 12px; color: #9aa1a8">
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 50%; background: #3ccf6e; box-shadow: 0 0 6px #3ccf6e"></span>activiteit</span>
+<span style="display: flex; align-items: center; gap: 8px"><span style="display: inline-flex; gap: 2px"><span style="width: 7px; height: 7px; background: #3ccf6e"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span><span style="width: 7px; height: 7px; background: #2a2f34"></span></span>kanaal 1–16</span>
+<span style="display: flex; align-items: center; gap: 8px"><span style="padding: 1px 5px; border-radius: 3px; background: #1f3a28; color: #6fe394; font-family: 'IBM Plex Mono', monospace; font-size: 11px">NOTE</span>berichttype gezien</span>
+<span style="display: flex; align-items: center; gap: 8px"><span style="display: inline-block; width: 26px; height: 3px; background: #8a9198"></span>verbonden</span>
+<span style="flex: 1"></span>
+<span style="color: #6c737a">Verborgen: Midi-Through, 3 Midi-Bridge-dubbelingen</span>
+</div>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
