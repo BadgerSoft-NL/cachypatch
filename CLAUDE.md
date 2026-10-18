@@ -50,16 +50,26 @@ Concept en ontwerp staan in Nokta (`CachyPatch.nokta`, notities **Concept** en
   verborgen. De Midi-Bridge is één node met alle ALSA-MIDI erin; die wordt per
   `port.group` (ALSA-client) gesplitst, clients ≥ 128 zijn apps.
 - `src/Patchbay.tsx` — vaste maten, dus poortposities zijn rekenwerk en geen
-  DOM-meting. Van stip naar stip slepen = link, klik op kabel = weg. Geen
+  DOM-meting. Van stip naar stip slepen = link (de doelpoort licht op), klik =
+  kabel kiezen (Shift erbij), Delete = weg. Bij een ingang pak je een
+  bestaande kabel op (de gekozen of de enige) en zet je hem ergens anders
+  neer; in het niets loslaten = weg. Audio rood, MIDI geel. Geen
   groepskopjes: modules zijn versleepbaar. Plekken alleen in het geheugen.
 - `src/mixer.ts` — het "edit mix"-model. Hardware met AUX-kanalen wordt in
   stereoparen geknipt. Route bron→bestemming: geen links = uit, precies de
   verwachte (FL→FL, of op volgorde) = aan, al het andere = aangepast (alleen
-  tonen, klik opent de patchbay). "manual" = een link niet van WirePlumber
-  (`client.id`) of een `target.object` op een van beide nodes.
-  Aanzetten: stream zonder routes naar een hele node (of het eerste paar) →
-  `target.object`; anders handmatige links. Uitzetten: links weg en een doel
-  dat ernaar wees wissen.
+  tonen, klik opent de patchbay). Een link is "auto" als hij ligt waar
+  WirePlumber hem zou leggen (stream zonder doel → standaard, eerste paar),
+  wie hem ook legde; al het andere is "manual".
+  Aanzetten van een losstaande stream: naar zijn WirePlumber-doel legt
+  CachyPatch de links zelf, naar een andere hele node gaat het via
+  `target.object`; anders handmatige links. Uitzetten: alleen links weg (een
+  doel wissen zou de stream meteen terugsturen).
+  Back to auto: handmatige links weg, doelen wissen, losstaande streams zelf
+  op de standaard zetten.
+- `src/geschiedenis.ts`, `src/handelingen.ts` — undo/redo. Elke stap werkt op
+  poortparen en de graph van dat moment; stappen zetten een vaste stand
+  (niet "keer om"), en undo/redo lopen in een rij met 250 ms ertussen.
 - `src/Mixer.tsx` — de strips; fader is de faderwet van CachyMix. Mute van een
   paar (geen hele node) gaat via volume 0. Verborgen strips in `localStorage`.
 - `src/meters.ts` — één animatielus zet de meterbalkjes direct in de DOM
@@ -102,9 +112,10 @@ naar `src-tauri/target/echt.json` en open
 
 - `target.object` werkt met de **serial** als gewone string; met een
   JSON-gequote `node.name` gebeurt niets.
-- `target.object = -1` koppelt niet los maar zet terug naar de standaard.
-- Alleen wissen doet niets met een stream die los staat. Terug naar auto =
-  eerst `-1`, dan wissen.
+- Een `target.object` dat niet verandert doet niets, ook als de stream intussen
+  los staat. Wissen na een echt doel zet hem terug op de standaard.
+- `-1` zet terug naar de standaard, maar niet meer zodra er een andere link aan
+  de stream hangt (zoals onze meter). Daarom gebruikt CachyPatch het niet.
 - Links van WirePlumber weghalen: hij legt ze niet terug. Zo zet de mixer een
   route uit.
 - Stream-naar-stream via `target.object` werkt (recorder volgt speler).

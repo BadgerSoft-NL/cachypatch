@@ -4,7 +4,8 @@
 // "Back to auto": wat er ligt, heb jij gelegd.
 
 import type { ReactNode } from "react";
-import { isBus, ontkoppel, verbind, type Graaf, type Kabel, type Poort } from "./api";
+import { isBus, type Graaf, type Kabel, type Poort } from "./api";
+import { schakelMidi } from "./handelingen";
 import { midiDing, poortLabel } from "./indeling";
 import { MidiBlok } from "./MidiMeter";
 
@@ -92,9 +93,7 @@ export function MidiMixer({
                   <button
                     className={`kies${kabel ? " aan" : ""}`}
                     aria-pressed={!!kabel}
-                    onClick={() =>
-                      kabel ? ontkoppel([kabel.id]) : verbind(b.poort.id, bewerkt.poort.id)
-                    }
+                    onClick={() => schakelMidi(b.poort.id, bewerkt.poort.id, !!kabel)}
                   >
                     {bewerkt.naam}
                   </button>
@@ -117,12 +116,15 @@ export function MidiMixer({
             const van = model.bronnen.filter((b) => model.route(b, d));
             const neemtOp = opnemen && d.bus;
             return (
-              <Kaart key={d.sleutel} s={d} verberg={verberg} gekozen={gekozen} opname={neemtOp}>
-                <button
-                  className={`kies${gekozen ? " aan" : ""}`}
-                  aria-pressed={gekozen}
-                  onClick={() => kiesBewerkt(d.sleutel)}
-                >
+              <Kaart
+                key={d.sleutel}
+                s={d}
+                verberg={verberg}
+                gekozen={gekozen}
+                opname={neemtOp}
+                kies={() => kiesBewerkt(d.sleutel)}
+              >
+                <button className={`kies${gekozen ? " aan" : ""}`} aria-pressed={gekozen}>
                   {gekozen ? "editing" : "edit"}
                 </button>
                 <div className={`regel${neemtOp ? " rood" : ""}`}>
@@ -145,20 +147,28 @@ function Kaart({
   gekozen,
   verberg,
   opname,
+  kies,
   children,
 }: {
   opname?: boolean;
+  kies?: () => void;
   s: MidiStrip;
   gekozen?: boolean;
   verberg: (sleutel: string) => void;
   children: ReactNode;
 }) {
   return (
-    <article className={`strip strip-midi${gekozen ? " gekozen" : ""}${opname ? " opname" : ""}`}>
+    <article
+      onClick={kies}
+      className={`strip strip-midi${gekozen ? " gekozen" : ""}${opname ? " opname" : ""}${kies ? " kiesbaar" : ""}`}
+    >
       <div className="strip-kop" title={`${s.naam} — ${s.onder}`}>
         <div className="naam">{s.naam}</div>
         <div className="strip-onder">{s.onder}</div>
-        <button className="verberg" aria-label={`Hide ${s.naam}`} title="Hide" onClick={() => verberg(s.sleutel)}>
+        <button className="verberg" aria-label={`Hide ${s.naam}`} title="Hide" onClick={(e) => {
+            e.stopPropagation();
+            verberg(s.sleutel);
+          }}>
           ×
         </button>
       </div>

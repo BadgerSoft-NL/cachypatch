@@ -3,14 +3,17 @@
 // versleepte plekken weg en zet alles terug in de beginindeling.
 //
 // Een kabel leg je door van een stip naar een stip te slepen (welke kant op
-// maakt niet uit); klikken op een kabel haalt hem weg.
+// maakt niet uit); de stip waar je boven hangt licht op als loslaten mag.
+// Klikken kiest een kabel (Shift: erbij), Delete haalt hem weg. Een bestaande
+// kabel pak je bij zijn ingang op en zet je ergens anders neer; laat je hem
+// in het niets los, dan is hij weg. Alles kan terug met Ctrl+Z.
 //
 // Alle maten liggen vast, dus de plek van elke poort volgt uit de rekensom
 // hieronder en niet uit het meten van de DOM. Zo lopen kabels nooit een
 // frame achter op een module die versleept wordt.
 
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ontkoppel, verbind } from "./api";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { haalKabelsWeg, legKabel, verplaatsKabel } from "./handelingen";
 import type { Indeling, Module } from "./indeling";
 import { IcoonTegel } from "./iconen";
 import { MeterBalk } from "./Meter";
@@ -43,12 +46,27 @@ const hoogte = (m: Module) =>
 const poortY = (m: Module, i: number) => RAND + KOP + BINNEN + MAAT[m.soort].rij * i + MAAT[m.soort].stip;
 const breedte = (m: Module) => MAAT[m.soort].breedte;
 
+type Trek = {
+  /** De vaste kant: de poort waar de kabel aan blijft hangen. */
+  van: number;
+  /** Of `van` een ingang is (dan sleep je het uitgangseinde). */
+  ingang: boolean;
+  x: number;
+  y: number;
+  /** De poort waar je nu boven hangt en die past: loslaten verbindt. */
+  doel: number | null;
+  /** Een bestaande kabel die je verplaatst: zijn oude ingang. */
+  verplaatst: { kabel: number; oudIn: number } | null;
+};
+
 export function Patchbay({
   indeling,
+  soort,
   plekken,
   zetPlek,
 }: {
   indeling: Indeling;
+  soort: "audio" | "midi";
   plekken: Plekken;
   zetPlek: (sleutel: string, plek: { x: number; y: number }) => void;
 }) {
@@ -56,10 +74,8 @@ export function Patchbay({
   const tekenvlak = useRef<HTMLDivElement>(null);
   const [vlakBreedte, setBreedte] = useState(1200);
   const [boven, setBoven] = useState<number | null>(null);
-  // Een kabel in de maak: van welke poort, en waar de muis nu is.
-  const [trek, setTrek] = useState<{ van: number; ingang: boolean; x: number; y: number } | null>(
-    null,
-  );
+  const [gekozen, setGekozen] = useState<Set<number>>(new Set());
+  const [trek, setTrek] = useState<Trek | null>(null);
 
   useLayoutEffect(() => {
     const el = vlak.current;
@@ -69,6 +85,28 @@ export function Patchbay({
     setBreedte(el.clientWidth);
     return () => ro.disconnect();
   }, []);
+
+  // Gekozen kabels die niet meer bestaan, vergeten.
+  const bestaand = new Set(indeling.kabels.map((k) => k.id));
+  const nuGekozen = [...gekozen].filter((id) => bestaand.has(id));
+
+  // Delete of Backspace haalt de gekozen kabels weg, Escape kiest niets.
+  useEffect(() => {
+    const toets = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) return;
+      if ((e.key === "Delete" || e.key === "Backspace") && nuGekozen.length) {
+        e.preventDefault();
+        haalKabelsWeg(nuGekozen);
+        setGekozen(new Set());
+      } else if (e.key === "Escape") {
+        setGekozen(new Set());
+        setTrek(null);
+      }
+    };
+    window.addEventListener("keydown", toets);
+    return () => window.removeEventListener("keydown", toets);
+  });
 
   // De beginindeling: twee kolommen, per soort onder elkaar.
   const begin = useMemo(() => {
@@ -99,10 +137,7 @@ export function Patchbay({
     );
   }
 
-  const onderkant = Math.max(
-    400,
-    ...modules.map((m) => plek(m).y + hoogte(m) + 40),
-  );
+  const onderkant = Math.max(400, ...modules.map((m) => plek(m).y + hoogte(m) + 40));
   const rechterkant = Math.max(vlakBreedte, ...modules.map((m) => plek(m).x + breedte(m) + MARGE));
 
   // Wat er bij een ingang binnenkomt: de uitgangen die erheen gaan.
@@ -118,25 +153,50 @@ export function Patchbay({
     return `M${a.x} ${a.y} C ${a.x + d} ${a.y}, ${b.x - d} ${b.y}, ${b.x} ${b.y}`;
   };
 
-  const pak = (e: React.PointerEvent, van: number, ingang: boolean) => {
+  /** De poort onder de muis, als je daar mag loslaten. */
+  const doelOnder = (e: { clientX: number; clientY: number }, t: Trek): number | null => {
+    const el = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>("[data-poort]");
+    if (!el) return null;
+    const naar = Number(el.dataset.poort);
+    if ((el.dataset.ingang === "true") === t.ingang) return null;
+    if (t.verplaatst && naar === t.verplaatst.oudIn) return null;
+    const [uit, ingang] = t.ingang ? [naar, t.van] : [t.van, naar];
+    if (indeling.kabels.some((k) => k.uit === uit && k.in === ingang)) return null;
+    return naar;
+  };
+
+  const pak = (e: React.PointerEvent, poort: number, ingang: boolean) => {
     if (e.button !== 0) return;
     e.stopPropagation();
     tekenvlak.current!.setPointerCapture(e.pointerId);
-    setTrek({ van, ingang, ...binnen(e) });
+    // Bij een ingang pak je een bestaande kabel op: de gekozen, of de enige.
+    if (ingang) {
+      const hier = indeling.kabels.filter((k) => k.in === poort);
+      const k = hier.find((k) => gekozen.has(k.id)) ?? (hier.length === 1 ? hier[0] : undefined);
+      if (k) {
+        setTrek({ van: k.uit, ingang: false, ...binnen(e), doel: null, verplaatst: { kabel: k.id, oudIn: poort } });
+        return;
+      }
+    }
+    setTrek({ van: poort, ingang, ...binnen(e), doel: null, verplaatst: null });
   };
-  const los = (e: React.PointerEvent) => {
+
+  const los = () => {
     if (!trek) return;
     setTrek(null);
-    const doel = document
-      .elementFromPoint(e.clientX, e.clientY)
-      ?.closest<HTMLElement>("[data-poort]");
-    if (!doel) return;
-    const naar = Number(doel.dataset.poort);
-    if ((doel.dataset.ingang === "true") === trek.ingang) return;
-    const [uit, ingang] = trek.ingang ? [naar, trek.van] : [trek.van, naar];
-    if (indeling.kabels.some((k) => k.uit === uit && k.in === ingang)) return;
-    verbind(uit, ingang);
+    const { doel, verplaatst } = trek;
+    if (verplaatst) {
+      // Losgelaten op een andere ingang: verplaatsen. Ergens anders: los.
+      if (doel !== null) verplaatsKabel([trek.van, verplaatst.oudIn], [trek.van, doel]);
+      else haalKabelsWeg([verplaatst.kabel]);
+      return;
+    }
+    if (doel === null) return;
+    const [uit, ingang] = trek.ingang ? [doel, trek.van] : [trek.van, doel];
+    legKabel(uit, ingang);
   };
+
+  const losEinde = trek && (trek.doel !== null ? stippen.get(trek.doel)! : { x: trek.x, y: trek.y });
 
   return (
     <div className="patchbay" ref={vlak}>
@@ -144,42 +204,52 @@ export function Patchbay({
         className={`vlak${trek ? " trekt" : ""}`}
         ref={tekenvlak}
         style={{ height: onderkant, width: rechterkant }}
-        onPointerMove={(e) => trek && setTrek({ ...trek, ...binnen(e) })}
+        onPointerDown={(e) => {
+          // Klikken op lege ruimte: niets meer gekozen.
+          if (e.target === e.currentTarget || (e.target as Element).tagName === "svg") setGekozen(new Set());
+        }}
+        onPointerMove={(e) => {
+          if (!trek) return;
+          setTrek({ ...trek, ...binnen(e), doel: doelOnder(e, trek) });
+        }}
         onPointerUp={los}
         onPointerCancel={() => setTrek(null)}
       >
-        <svg className="kabels" width={rechterkant} height={onderkant}>
+        <svg className={`kabels ${soort}`} width={rechterkant} height={onderkant}>
           {indeling.kabels.map((k) => {
+            if (trek?.verplaatst?.kabel === k.id) return null;
             const a = stippen.get(k.uit);
             const b = stippen.get(k.in);
             if (!a || !b) return null;
             const d = pad(a, b);
+            const klas = [boven === k.id && "boven", gekozen.has(k.id) && "gekozen"].filter(Boolean).join(" ");
             return (
-              <g key={k.id} className={boven === k.id ? "boven" : undefined}>
-                <path d={d} />
+              <g key={k.id} className={klas || undefined}>
+                <path className="lijn" d={d} />
                 <path
                   className="raak"
                   d={d}
                   onPointerEnter={() => setBoven(k.id)}
                   onPointerLeave={() => setBoven((b) => (b === k.id ? null : b))}
-                  onClick={() => {
-                    setBoven(null);
-                    ontkoppel([k.id]);
+                  onClick={(e) => {
+                    setGekozen((g) => {
+                      if (!e.shiftKey) return g.has(k.id) && g.size === 1 ? new Set() : new Set([k.id]);
+                      const n = new Set(g);
+                      if (n.has(k.id)) n.delete(k.id);
+                      else n.add(k.id);
+                      return n;
+                    });
                   }}
                 >
-                  <title>Click to disconnect</title>
+                  <title>Click to select, Delete to disconnect</title>
                 </path>
               </g>
             );
           })}
-          {trek && stippen.get(trek.van) && (
+          {trek && losEinde && stippen.get(trek.van) && (
             <path
-              className="nieuw"
-              d={
-                trek.ingang
-                  ? pad({ x: trek.x, y: trek.y }, stippen.get(trek.van)!)
-                  : pad(stippen.get(trek.van)!, { x: trek.x, y: trek.y })
-              }
+              className={`nieuw${trek.doel !== null ? " raakt" : ""}`}
+              d={trek.ingang ? pad(losEinde, stippen.get(trek.van)!) : pad(stippen.get(trek.van)!, losEinde)}
             />
           )}
         </svg>
@@ -191,6 +261,7 @@ export function Patchbay({
             zetPlek={zetPlek}
             pak={pak}
             bronnen={bronnen}
+            doel={trek?.doel ?? null}
           />
         ))}
       </div>
@@ -204,12 +275,15 @@ function ModuleKaart({
   zetPlek,
   pak,
   bronnen,
+  doel,
 }: {
   m: Module;
   plek: { x: number; y: number };
   zetPlek: (sleutel: string, plek: { x: number; y: number }) => void;
   pak: (e: React.PointerEvent, poort: number, ingang: boolean) => void;
   bronnen: (poort: number) => number[];
+  /** De poort waar een kabel nu naartoe wil. */
+  doel: number | null;
 }) {
   const sleep = useRef<{ dx: number; dy: number } | null>(null);
   const [sleept, setSleept] = useState(false);
@@ -268,7 +342,7 @@ function ModuleKaart({
               p.label
             )}
             <span
-              className={`stip${p.verbonden ? " vol" : ""}`}
+              className={`stip${p.verbonden ? " vol" : ""}${doel === p.id ? " doelwit" : ""}`}
               data-poort={p.id}
               data-ingang={m.kant === "rechts"}
               onPointerDown={(e) => pak(e, p.id, m.kant === "rechts")}

@@ -12,13 +12,14 @@ import {
   type TransportStand,
 } from "./api";
 import { Transport } from "./Transport";
+import { herhaal, maakOngedaan, useGeschiedenis } from "./geschiedenis";
+import { haalKabelsWeg, terugNaarAutoStap } from "./handelingen";
 import { deelIn } from "./indeling";
 import { Mixer } from "./Mixer";
-import { bouwMixer, telHandwerk, terugNaarAuto } from "./mixer";
+import { bouwMixer, telHandwerk } from "./mixer";
 import { volgPieken } from "./meters";
 import { volgMidi } from "./midi";
 import { bouwMidiMixer, MidiMixer } from "./MidiMixer";
-import { ontkoppel } from "./api";
 import { Patchbay, type Plekken } from "./Patchbay";
 
 type Tab = "audio" | "midi";
@@ -70,6 +71,25 @@ export default function App() {
   useEffect(() => volgPieken(() => graafRef.current), []);
   useEffect(() => volgMidi(() => graafRef.current), []);
   useEffect(() => volgTransport(setTransport), []);
+  const geschiedenis = useGeschiedenis();
+  // Ctrl+Z en Ctrl+Shift+Z (of Ctrl+Y), behalve in een invoerveld.
+  useEffect(() => {
+    const toets = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) return;
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const k = e.key.toLowerCase();
+      if (k === "z" && !e.shiftKey) {
+        e.preventDefault();
+        maakOngedaan();
+      } else if ((k === "z" && e.shiftKey) || k === "y") {
+        e.preventDefault();
+        herhaal();
+      }
+    };
+    window.addEventListener("keydown", toets);
+    return () => window.removeEventListener("keydown", toets);
+  }, []);
   useEffect(() => {
     zetTransport(opties);
     try {
@@ -144,19 +164,45 @@ export default function App() {
             {(graaf.rate / 1000).toFixed(1)} kHz · quantum {graaf.quantum ?? "?"}
           </span>
         )}
-        <Keuze
-          label="Signal type"
-          waarde={tab}
-          opties={[
-            ["audio", "Audio"],
-            ["midi", "MIDI"],
-          ]}
-          kies={(t) => {
-            setTab(t);
-            setBevestig(false);
-            setToonVerborgen(false);
-          }}
-        />
+        <nav className="weergaven" aria-label="View">
+          {(["audio", "midi"] as const).map((t) => (
+            <div key={t} className={`keuze ${t}`} role="group" aria-label={t === "audio" ? "Audio" : "MIDI"}>
+              <span className="keuze-label">{t === "audio" ? "Audio" : "MIDI"}</span>
+              {(["mixer", "patchbay"] as const).map((w) => (
+                <button
+                  key={w}
+                  aria-pressed={tab === t && weergave === w}
+                  onClick={() => {
+                    setTab(t);
+                    setWeergave(w);
+                    setBevestig(false);
+                    setToonVerborgen(false);
+                  }}
+                >
+                  {w === "mixer" ? "Mixer" : "Patchbay"}
+                </button>
+              ))}
+            </div>
+          ))}
+        </nav>
+        <div className="keuze" role="group" aria-label="History">
+          <button
+            disabled={!geschiedenis.terug}
+            onClick={maakOngedaan}
+            title={geschiedenis.terug ? `Undo ${geschiedenis.terug} (Ctrl+Z)` : "Nothing to undo"}
+            aria-label="Undo"
+          >
+            ↶
+          </button>
+          <button
+            disabled={!geschiedenis.vooruit}
+            onClick={herhaal}
+            title={geschiedenis.vooruit ? `Redo ${geschiedenis.vooruit} (Ctrl+Shift+Z)` : "Nothing to redo"}
+            aria-label="Redo"
+          >
+            ↷
+          </button>
+        </div>
         <div className="vul" />
         {opMixer && doelNaam && (
           <span className="zacht">
@@ -198,15 +244,6 @@ export default function App() {
             )}
           </div>
         )}
-        <Keuze
-          label="View"
-          waarde={weergave}
-          opties={[
-            ["mixer", "Mixer"],
-            ["patchbay", "Patchbay"],
-          ]}
-          kies={setWeergave}
-        />
         {weergave === "patchbay" && (
           <button className="knop-tekst" onClick={() => setPlekken((p) => ({ ...p, [tab]: {} }))}>
             Rearrange
@@ -244,8 +281,8 @@ export default function App() {
           <button
             className="knop-amber"
             onClick={() => {
-              if (tab === "audio") terugNaarAuto(mixer);
-              else ontkoppel(midiMixer.kabels.map((k) => k.id));
+              if (tab === "audio") terugNaarAutoStap();
+              else haalKabelsWeg(midiMixer.kabels.map((k) => k.id));
               setBevestig(false);
             }}
           >
@@ -269,6 +306,7 @@ export default function App() {
         <>
           <Patchbay
             indeling={indeling}
+            soort={tab}
             plekken={plekken[tab]}
             zetPlek={(sleutel, plek) =>
               setPlekken((p) => ({ ...p, [tab]: { ...p[tab], [sleutel]: plek } }))
@@ -276,12 +314,14 @@ export default function App() {
           />
           <footer className="voet">
             <span className="legenda">
-              <span className="lijn" /> connected
+              <span className={`lijn ${tab}`} /> connected
             </span>
             <span className="legenda">
               <span className="stip" /> not connected
             </span>
-            <span className="zacht">Drag between dots to connect · click a cable to disconnect</span>
+            <span className="zacht">
+              Drag between dots to connect · click a cable, then Delete · grab a cable at its input to move it
+            </span>
             <span className="vul" />
             {indeling.verborgen.length > 0 && (
               <span className="zacht">Hidden: {indeling.verborgen.join(", ")}</span>
@@ -290,7 +330,6 @@ export default function App() {
         </>
       ) : tab === "audio" ? (
         <Mixer
-          graaf={graaf}
           mixer={mixer}
           bewerkt={bewerkt}
           kiesBewerkt={setBewerktSleutel}
@@ -310,27 +349,5 @@ export default function App() {
         />
       )}
     </div>
-  );
-}
-
-function Keuze<T extends string>({
-  label,
-  waarde,
-  opties,
-  kies,
-}: {
-  label: string;
-  waarde: T;
-  opties: [T, string][];
-  kies: (w: T) => void;
-}) {
-  return (
-    <nav className="keuze" aria-label={label}>
-      {opties.map(([w, tekst]) => (
-        <button key={w} aria-pressed={w === waarde} onClick={() => kies(w)}>
-          {tekst}
-        </button>
-      ))}
-    </nav>
   );
 }

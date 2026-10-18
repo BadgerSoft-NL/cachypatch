@@ -149,8 +149,19 @@ export function stopOpname() {
   nepTransportVolger?.(nepTransport);
 }
 
+let laatste: Graaf = LEEG;
+
+/** De graph zoals hij het laatst binnenkwam; voor ongedaan maken. */
+export function laatsteGraaf(): Graaf {
+  return laatste;
+}
+
 /** Roept `bij` aan met de huidige graph en daarna met elke verandering. */
-export function volgGraaf(bij: (g: Graaf) => void): () => void {
+export function volgGraaf(volger: (g: Graaf) => void): () => void {
+  const bij = (g: Graaf) => {
+    laatste = g;
+    volger(g);
+  };
   if (!inTauri) {
     nepVolger = bij;
     // ?graaf=/pad/naar.json laadt een echte momentopname, zoals
@@ -248,24 +259,28 @@ function nepVerbind(uit: number, naar: number, client = WIJ) {
   });
 }
 
-/** Wat WirePlumber doet bij een nieuw `target.object`: zijn eigen links van
- *  die stream weghalen en naar het doel (of de standaard) leggen. */
+/**
+ * Wat WirePlumber 0.5 doet bij een `target.object` (zie CLAUDE.md): alleen als
+ * het doel echt verandert, verplaatst hij de stream; wissen na een echt doel
+ * zet hem terug op de standaard; een doel dat niet verandert doet niets.
+ */
 function nepDoel(knoop: number, doel: string | null) {
   nepWijzig((g) => {
     const k = g.knopen.find((k) => k.id === knoop);
     if (!k) return;
-    k.doel = doel === "-1" ? "-1" : doel;
-    if (doel === null) return; // alleen wissen: WirePlumber doet niets
-    if (doel === "-1") k.doel = null;
     const uitgang = (k.klasse ?? "").startsWith("Stream/Output");
-    const naam = doel === "-1" ? (uitgang ? g.standaard_sink : g.standaard_bron) : null;
-    const d = g.knopen.find((n) => (naam ? n.naam === naam : String(n.serial) === doel));
+    const standaard = g.knopen.find((n) => n.naam === (uitgang ? g.standaard_sink : g.standaard_bron));
+    const vind = (d: string | null) =>
+      d === null || d === "-1" ? standaard : g.knopen.find((n) => String(n.serial) === d || n.naam === d);
+    const was = vind(k.doel);
+    const wordt = vind(doel);
+    k.doel = doel === "-1" ? null : doel;
+    if (!wordt || was?.id === wordt.id) return;
     g.kabels = g.kabels.filter(
       (c) => !(c.client === WP && (uitgang ? c.uit_knoop : c.in_knoop) === knoop),
     );
-    if (!d) return;
     const eigen = g.poorten.filter((p) => p.knoop === knoop && p.ingang !== uitgang && !p.monitor);
-    const ander = g.poorten.filter((p) => p.knoop === d.id && p.ingang === uitgang && !p.monitor && p.soort === "audio");
+    const ander = g.poorten.filter((p) => p.knoop === wordt.id && p.ingang === uitgang && !p.monitor && p.soort === "audio");
     eigen.forEach((p, i) => {
       const q = ander.find((q) => q.kanaal === p.kanaal) ?? ander[i];
       if (!q) return;
