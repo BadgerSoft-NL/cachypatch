@@ -14,7 +14,7 @@ import { Transport } from "./Transport";
 import { herhaal, maakOngedaan, useGeschiedenis } from "./geschiedenis";
 import { haalKabelsWeg, terugNaarAutoStap } from "./handelingen";
 import { deelIn } from "./indeling";
-import { Mixer } from "./Mixer";
+import { Mixer, rijSleutel } from "./Mixer";
 import { bouwMixer, telHandwerk, zetBusDefs } from "./mixer";
 import { bewaarBussen, bussen, busWeg, leesBussen, stuurBussen, type BusConfig } from "./bussen";
 import { volgPieken } from "./meters";
@@ -174,6 +174,15 @@ export default function App() {
       ? [...mixer.apps, ...mixer.hardware, ...mixer.bestemmingen]
       : [...midiMixer.bronnen, ...midiMixer.bestemmingen];
   const nuVerborgen = alleStrips.filter((s) => verborgen.has(s.sleutel));
+  // Verborgen rijen (alleen in de audio-mixer) staan bovenaan in het menu.
+  const verborgenRijen = (
+    [
+      ["apps", "Apps"],
+      ["hardware", "Hardware in"],
+      ["bestemmingen", "Destinations"],
+    ] as const
+  ).filter(([id]) => tab === "audio" && verborgen.has(rijSleutel(id)));
+  const aantalVerborgen = nuVerborgen.length + verborgenRijen.length;
   const opMixer = weergave === "mixer";
   const doelNaam = tab === "audio" ? bewerkt?.naam : midiBewerkt?.naam;
   const midiBus = midiMixer.bestemmingen.find((d) => graaf.knopen.some((k) => k.id === d.poort.knoop && isBus(k)));
@@ -264,13 +273,18 @@ export default function App() {
             <button
               className="knop-tekst"
               aria-expanded={toonVerborgen}
-              disabled={nuVerborgen.length === 0}
+              disabled={aantalVerborgen === 0}
               onClick={() => setToonVerborgen((t) => !t)}
             >
-              Hidden ({nuVerborgen.length})
+              Hidden ({aantalVerborgen})
             </button>
-            {toonVerborgen && nuVerborgen.length > 0 && (
+            {toonVerborgen && aantalVerborgen > 0 && (
               <div className="menu" role="menu">
+                {verborgenRijen.map(([id, naam]) => (
+                  <button key={id} role="menuitem" onClick={() => toon(rijSleutel(id))}>
+                    Show <strong>{naam}</strong> <span className="zacht">row</span>
+                  </button>
+                ))}
                 {nuVerborgen.map((s) => (
                   <button key={s.sleutel} role="menuitem" onClick={() => toon(s.sleutel)}>
                     Show <strong>{s.naam}</strong> <span className="zacht">{s.onder}</span>
