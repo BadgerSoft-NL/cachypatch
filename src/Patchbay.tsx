@@ -248,7 +248,7 @@ function ModuleKaart({
           <div className="onder">{m.onder}</div>
         </div>
         {m.meter.length > 0 && (
-          <div className="mini-meters">
+          <div className="mini-meters" aria-hidden="true">
             {m.meter.map((k, i) => (
               <MeterBalk key={i} knoop={m.knoop} kanalen={k} klein />
             ))}

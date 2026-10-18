@@ -119,14 +119,14 @@ export default function App() {
           </span>
         )}
         {opMixer && (
-          <button className="knop" disabled={weg === 0} onClick={() => setBevestig(true)}>
+          <button className="knop-tekst" disabled={weg === 0} onClick={() => setBevestig(true)}>
             {tab === "audio" ? "Back to auto" : "Disconnect all"}
           </button>
         )}
         {opMixer && (
           <div className="uitklap">
             <button
-              className="knop"
+              className="knop-tekst"
               aria-expanded={toonVerborgen}
               disabled={nuVerborgen.length === 0}
               onClick={() => setToonVerborgen((t) => !t)}
@@ -163,7 +163,7 @@ export default function App() {
           kies={setWeergave}
         />
         {weergave === "patchbay" && (
-          <button className="knop" onClick={() => setPlekken((p) => ({ ...p, [tab]: {} }))}>
+          <button className="knop-tekst" onClick={() => setPlekken((p) => ({ ...p, [tab]: {} }))}>
             Rearrange
           </button>
         )}

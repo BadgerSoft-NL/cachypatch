@@ -46,7 +46,7 @@ export function Mixer({
   );
 
   return (
-    <main className="mixer">
+    <main className="rijen">
       <Rij titel="Apps" leeg="No app is playing.">
         {mixer.apps.filter(zichtbaar).map(bron)}
       </Rij>
@@ -60,9 +60,9 @@ export function Mixer({
             (b) => mixer.route(b, d).stand.soort !== "uit",
           ).length;
           return (
-            <Kaart key={d.sleutel} s={d} gekozen={gekozen} verberg={verberg}>
+            <Kaart key={d.sleutel} s={d} gekozen={gekozen} verberg={verberg} bestemming>
               <button
-                className={`route${gekozen ? " aan" : " bewerk"}`}
+                className={`kies${gekozen ? " aan" : ""}`}
                 aria-pressed={gekozen}
                 onClick={() => kiesBewerkt(d.sleutel)}
               >
@@ -91,7 +91,7 @@ function Rij({
   return (
     <section className={`rij${laatste ? " laatste" : ""}`} aria-label={titel}>
       <div className="rij-titel">{titel}</div>
-      <div className="strips">
+      <div className="rij-strips">
         {children.length ? children : <p className="zacht leeg-rij">{leeg}</p>}
       </div>
     </section>
@@ -126,7 +126,7 @@ function BronStrip({
   let amber = false;
   if (r.stand.soort === "aangepast") {
     knop = (
-      <button className="route aangepast" onClick={naarPatchbay} title="Custom patch — open in patchbay">
+      <button className="kies aangepast" onClick={naarPatchbay} title="Custom patch — open in patchbay">
         custom
       </button>
     );
@@ -136,8 +136,9 @@ function BronStrip({
     const aan = r.stand.soort === "aan";
     knop = (
       <button
-        className={`route${aan ? " aan" : ""}`}
+        className={`kies${aan ? " aan" : ""}`}
         aria-pressed={aan}
+        title={`${aan ? "Remove" : "Add"} route to ${bewerkt.naam}`}
         onClick={() => schakel(mixer, graaf, s, bewerkt)}
       >
         {bewerkt.naam}
@@ -167,11 +168,13 @@ function Kaart({
   s,
   gekozen,
   verberg,
+  bestemming,
   children,
 }: {
   s: Strip;
   gekozen?: boolean;
   verberg: (sleutel: string) => void;
+  bestemming?: boolean;
   children?: ReactNode;
 }) {
   const db = stripDb(s);
@@ -198,32 +201,49 @@ function Kaart({
   };
 
   return (
-    <article className={`strip${gekozen ? " gekozen" : ""}${s.stil ? " stil" : ""}`}>
+    <article
+      className={
+        "strip" +
+        (bestemming ? " strip-uit" : s.kanalen.length > 1 ? " strip-stereo" : "") +
+        (gekozen ? " gekozen" : "") +
+        (s.stil || gemute ? " strip-stil" : "")
+      }
+    >
       <div className="strip-kop" title={`${s.naam} — ${s.onder}`}>
-        <div className="strip-naam">{s.naam}</div>
+        <div className="naam">{s.naam}</div>
         <div className="strip-onder">{s.onder}</div>
         <button className="verberg" aria-label={`Hide ${s.naam}`} title="Hide" onClick={() => verberg(s.sleutel)}>
           ×
         </button>
       </div>
-      {children ?? <div className="route-leeg" />}
-      <div className="fader-vak">
-        <div className="meters">
+      {children ?? <div className="kies-leeg" />}
+      <div className="strip-midden">
+        <div className="meter">
           {s.kanalen.map((k) => (
             <MeterBalk key={k} knoop={s.knoop.id} kanalen={[k]} />
           ))}
         </div>
         {db === null ? <div className="geen-volume">no volume</div> : <Fader db={db} onChange={zetDb} uit={gemute} />}
       </div>
-      <div className="db">{db === null ? "" : toonDb(db)}</div>
-      <button className={`mute${gemute ? " aan" : ""}`} aria-pressed={gemute} aria-label="Mute" onClick={mute} disabled={db === null}>
-        M
-      </button>
+      <div className={"db-label" + (db !== null && db > 0 ? " db-boven" : "")}>{db === null ? "" : toonDb(db)}</div>
+      <div className="knoppen">
+        <button
+          className={"knop knop-mute" + (gemute ? " aan" : "")}
+          aria-pressed={gemute}
+          title="Mute"
+          onClick={mute}
+          disabled={db === null}
+        >
+          M
+        </button>
+      </div>
     </article>
   );
 }
 
-// --- Fader, de wet van CachyMix: bovenin fijn rond 0 dB, onderin grof ---
+// --- Fader, zoals in CachyMix: bovenin fijn rond 0 dB, onderin grof ---
+
+const SCHAALSTREPEN = [6, 0, -6, -12, -20, -30, -40, -60];
 
 const WET: [number, number][] = [
   [0, UIT_DB],
@@ -285,7 +305,7 @@ function Fader({ db, onChange, uit }: { db: number; onChange: (db: number) => vo
 
   return (
     <div
-      className={`fader${uit ? " uit" : ""}`}
+      className={`fader${uit ? " fader-uit" : ""}`}
       ref={baan}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
@@ -298,7 +318,7 @@ function Fader({ db, onChange, uit }: { db: number; onChange: (db: number) => vo
           const dy = ev.clientY - y;
           y = ev.clientY;
           const h = baan.current?.clientHeight ?? 160;
-          zet(stand.current - (dy / (h - 18)) * (ev.shiftKey ? 0.2 : 1));
+          zet(stand.current - (dy / (h - 24)) * (ev.shiftKey ? 0.2 : 1));
         };
         const los = () => {
           sleept.current = false;
@@ -319,9 +339,15 @@ function Fader({ db, onChange, uit }: { db: number; onChange: (db: number) => vo
       }}
       title="Drag, wheel, Shift for fine, double-click for 0 dB"
     >
-      <div className="gleuf" />
-      <div className="nul" style={{ bottom: `calc((100% - 18px) * ${dbNaarStand(0)} + 9px)` }} />
-      <div className="knop-fader" style={{ bottom: `calc((100% - 18px) * ${stand.current})` }} />
+      <div className="fader-schaal">
+        {SCHAALSTREPEN.map((d) => (
+          <div key={d} className="fader-streep" style={{ bottom: `calc((100% - 24px) * ${dbNaarStand(d)} + 12px)` }}>
+            <span>{d > 0 ? `+${d}` : d}</span>
+          </div>
+        ))}
+      </div>
+      <div className="fader-gleuf" />
+      <div className="fader-knop" style={{ bottom: `calc((100% - 24px) * ${stand.current})` }} />
     </div>
   );
 }

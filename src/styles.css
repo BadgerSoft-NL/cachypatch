@@ -1,28 +1,34 @@
-/* Kleuren en maten uit het ontwerp (docs/ontwerp). */
+/* Palet en maten van CachyMix, zodat de twee zusjes op elkaar lijken. */
 :root {
-  --achter: #111315;
-  --kop: #16181b;
-  --balk: #141618;
-  --module: #1b1e21;
-  --module-rand: #2c3136;
-  --lijn: #24282c;
-  --lijn-zacht: #262a2e;
-  --knop: #1d2023;
-  --knop-rand: #2f3439;
-  --nav: #0c0d0f;
-  --gekozen: #2a2f34;
-  --tekst: #e6e8ea;
-  --poort: #b9bec3;
-  --zacht: #8a9198;
-  --zachter: #6c737a;
-  --kabel: #8a9198;
-  --open: #4a5057;
-  --groen: #3ccf6e;
-  --rood: #e5484d;
-  --amber: #f2a541;
+  --achter: #15171b;
+  --rij: #1c1f25;
+  --strip: #242830;
+  --strip-rand: #2f343e;
+  --tekst: #d9dde3;
+  --zacht: #8a919c;
+  --zachter: #646b76;
+  --accent: #4fc36b;
+  --accent-zacht: #2e6b3d;
+  --mute: #e0a43a;
+  --rood: #e0523a;
+  --meter-laag: #3ec46a;
+  --meter-midden: #d8c84a;
+  --meter-hoog: #e0523a;
 
-  font-family: "IBM Plex Sans", system-ui, sans-serif;
-  font-size: 13px;
+  /* Patchbay, in hetzelfde palet. */
+  --groen: var(--accent);
+  --amber: var(--mute);
+  --module: var(--rij);
+  --module-rand: var(--strip-rand);
+  --lijn: #000;
+  --lijn-zacht: #262a31;
+  --poort: #b9bec6;
+  --kabel: #8a919c;
+  --open: #4a505b;
+  --balk: #101216;
+
+  font-family: Inter, "Noto Sans", system-ui, sans-serif;
+  font-size: 12px;
   color: var(--tekst);
   background: var(--achter);
   user-select: none;
@@ -48,15 +54,26 @@ button {
   cursor: pointer;
 }
 
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .mono,
 .onder,
 .poorten,
-.klok {
-  font-family: "IBM Plex Mono", monospace;
+.klok,
+.strip-onder,
+.midi-laatste {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
 }
 
 .zacht {
   color: var(--zacht);
+}
+
+.groen {
+  color: var(--accent);
 }
 
 .vul {
@@ -69,31 +86,32 @@ button {
   flex-direction: column;
 }
 
-/* --- Kop --- */
+/* ------------------------------------------------------------ balk */
 
 .kop {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px 24px;
-  padding: 10px 20px;
-  border-bottom: 1px solid var(--lijn);
-  background: var(--kop);
+  gap: 8px 18px;
+  padding: 8px 14px;
+  background: var(--balk);
+  border-bottom: 1px solid #000;
+  flex: none;
 }
 
 .merk {
   display: flex;
   align-items: baseline;
-  gap: 10px;
+  gap: 4px;
 }
 
 .merk .naam {
   font-weight: 700;
-  font-size: 18px;
+  font-size: 14px;
+  letter-spacing: 0.02em;
 }
 
 .merk .pw {
-  font-size: 15px;
   color: var(--zacht);
 }
 
@@ -104,55 +122,532 @@ button {
 }
 
 .status .lamp {
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: var(--groen);
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
+
+.status.los {
+  color: var(--zacht);
 }
 
 .status.los .lamp {
   background: var(--rood);
+  box-shadow: none;
 }
 
 .klok {
-  font-size: 12px;
   color: var(--zacht);
+  font-size: 11px;
 }
 
 .keuze {
   display: flex;
-  gap: 2px;
-  background: var(--nav);
-  padding: 3px;
-  border-radius: 6px;
+  border: 1px solid var(--strip-rand);
+  border-radius: 4px;
+  overflow: hidden;
 }
 
 .keuze button {
-  min-height: 38px;
-  padding: 0 14px;
+  padding: 4px 10px;
   border: 0;
-  border-radius: 4px;
-  background: transparent;
+  background: var(--strip);
   color: var(--zacht);
 }
 
+.keuze button + button {
+  border-left: 1px solid var(--strip-rand);
+}
+
 .keuze button[aria-pressed="true"] {
-  background: var(--gekozen);
+  background: var(--accent-zacht);
   color: var(--tekst);
   font-weight: 600;
 }
 
-.knop {
-  min-height: 40px;
-  padding: 0 14px;
-  border: 1px solid var(--knop-rand);
-  border-radius: 6px;
-  background: var(--knop);
+.knop-tekst {
+  background: var(--strip);
+  border: 1px solid var(--strip-rand);
+  border-radius: 4px;
+  padding: 4px 10px;
 }
 
-.knop:hover,
+.knop-tekst:not(:disabled):hover,
 .keuze button:hover {
+  border-color: var(--zacht);
   color: var(--tekst);
+}
+
+.uitklap {
+  position: relative;
+}
+
+.menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 10;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  padding: 3px;
+  background: var(--strip);
+  border: 1px solid var(--strip-rand);
+  border-radius: 4px;
+  box-shadow: 0 6px 18px #000a;
+}
+
+.menu button {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  text-align: left;
+}
+
+.menu button:hover {
+  background: var(--rij);
+}
+
+.bevestig {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 6px 14px;
+  background: #2a2116;
+  border-bottom: 1px solid #5a4421;
+  color: #f5d9a8;
+}
+
+.knop-amber-rand,
+.knop-amber {
+  padding: 4px 10px;
+  border-radius: 4px;
+}
+
+.knop-amber-rand {
+  border: 1px solid #5a4421;
+  background: transparent;
+  color: #f5d9a8;
+}
+
+.knop-amber {
+  border: 1px solid var(--mute);
+  background: var(--mute);
+  color: #1d1505;
+  font-weight: 700;
+}
+
+/* ------------------------------------------------------------ rijen */
+
+.rijen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  min-height: 0;
+}
+
+.rij {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  background: var(--rij);
+  border-radius: 4px;
+}
+
+/* De MIDI-rijen hebben geen fader die mee moet rekken. */
+.rijen.midi .rij {
+  flex: none;
+}
+
+.rij-titel {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  text-align: center;
+  padding: 8px 4px;
+  color: var(--zacht);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  border-right: 1px solid #000;
+  flex: none;
+}
+
+.rij-strips {
+  display: flex;
+  gap: 3px;
+  padding: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex: 1;
+  min-width: 0;
+}
+
+/* WebKitGTK tekent zijn scrollbalk standaard als overlay, bovenop de
+   mute-knoppen. Een eigen stijl maakt er een gewone balk van. */
+.rij-strips::-webkit-scrollbar {
+  height: 8px;
+}
+
+.rij-strips::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.rij-strips::-webkit-scrollbar-thumb {
+  background: var(--strip-rand);
+  border-radius: 4px;
+}
+
+.rij-strips::-webkit-scrollbar-thumb:hover {
+  background: var(--zacht);
+}
+
+.leeg-rij {
+  margin: 0;
+  align-self: center;
+  padding: 0 8px;
+}
+
+/* ------------------------------------------------------------ strip */
+
+.strip {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  width: 62px;
+  flex: none;
+  background: var(--strip);
+  border: 1px solid var(--strip-rand);
+  border-radius: 4px;
+  padding: 4px;
+  min-height: 0;
+}
+
+.strip-stereo {
+  width: 84px;
+}
+
+.strip-uit {
+  width: 96px;
+}
+
+.strip-midi {
+  width: 112px;
+}
+
+.strip.gekozen {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+.strip-stil .fader-knop {
+  opacity: 0.55;
+}
+
+.strip-kop {
+  position: relative;
+  flex: none;
+}
+
+.naam {
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 2px 3px;
+  border-radius: 3px;
+  background: #1a1d22;
+}
+
+.strip.gekozen .naam {
+  background: var(--accent-zacht);
+}
+
+.strip-onder {
+  font-size: 9px;
+  color: var(--zacht);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-top: 1px;
+}
+
+.verberg {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  background: #1a1d22 !important;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--zacht);
+  font-size: 11px;
+  line-height: 1;
+  opacity: 0;
+}
+
+.strip-kop:hover .verberg,
+.verberg:focus-visible {
+  opacity: 1;
+}
+
+.verberg:hover {
+  background: var(--strip-rand);
+  color: var(--tekst);
+}
+
+.kies,
+.kies-leeg {
+  height: 18px;
+  flex: none;
+}
+
+.kies {
+  font-size: 10px;
+  padding: 0 3px;
+  background: #1a1d22;
+  border: 1px solid var(--strip-rand);
+  border-radius: 3px;
+  color: var(--zacht);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kies.aan {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #08200f;
+  font-weight: 700;
+}
+
+.kies.aangepast {
+  border-color: var(--mute);
+  background: linear-gradient(90deg, var(--mute) 50%, #2a2116 50%);
+  color: #1d1505;
+  font-weight: 700;
+}
+
+.regel {
+  height: 12px;
+  flex: none;
+  font-size: 9px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--zacht);
+}
+
+.regel.amber {
+  color: var(--mute);
+}
+
+.strip-midden {
+  flex: 1;
+  display: flex;
+  gap: 4px;
+  min-height: 60px;
+}
+
+.geen-volume {
+  flex: 1;
+  align-self: center;
+  text-align: center;
+  font-size: 9px;
+  color: var(--zachter);
+}
+
+.db-label {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--zacht);
+}
+
+.db-label.db-boven {
+  color: var(--mute);
+}
+
+.knoppen {
+  display: flex;
+  gap: 3px;
+  justify-content: center;
+}
+
+.knop {
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+  padding: 0;
+  font-size: 10px;
+  font-weight: 700;
+  background: #1a1d22;
+  border: 1px solid var(--strip-rand);
+  border-radius: 3px;
+  color: var(--zacht);
+}
+
+.knop-mute.aan {
+  background: var(--mute);
+  border-color: var(--mute);
+  color: #1d1505;
+}
+
+/* ------------------------------------------------------------ fader */
+
+.fader {
+  position: relative;
+  flex: 1;
+  min-width: 26px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.fader-gleuf {
+  position: absolute;
+  left: 50%;
+  top: 12px;
+  bottom: 12px;
+  width: 4px;
+  margin-left: -2px;
+  background: #0b0c0f;
+  border-radius: 2px;
+}
+
+.fader-knop {
+  position: absolute;
+  left: 50%;
+  width: 26px;
+  height: 24px;
+  margin-left: -13px;
+  border-radius: 3px;
+  background: linear-gradient(#d5d9df, #9aa1ab 45%, #7c838d 50%, #a6adb6);
+  box-shadow: 0 1px 3px #000a;
+}
+
+.fader-knop::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  top: 11px;
+  height: 2px;
+  background: var(--accent);
+}
+
+.fader-uit .fader-knop::after {
+  background: #555;
+}
+
+.fader-schaal {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.fader-streep {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px solid #ffffff12;
+}
+
+.fader-streep span {
+  position: absolute;
+  right: 0;
+  top: -6px;
+  font-size: 8px;
+  color: #ffffff40;
+}
+
+/* ------------------------------------------------------------ meter */
+
+.meter {
+  display: flex;
+  gap: 2px;
+  flex: none;
+  padding: 0 0 12px;
+}
+
+.meter-kanaal {
+  display: flex;
+  flex-direction: column;
+  width: 6px;
+  gap: 2px;
+}
+
+.meter-clip {
+  height: 4px;
+  background: #3a1612;
+  border-radius: 1px;
+  margin-top: 6px;
+}
+
+.meter-clip.aan {
+  background: var(--rood);
+  box-shadow: 0 0 4px var(--rood);
+}
+
+.meter-baan {
+  position: relative;
+  flex: 1;
+  background: #0b0c0f;
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.meter-baan.klein {
+  flex: none;
+  width: 4px;
+  height: 20px;
+}
+
+.meter-balk {
+  position: absolute;
+  inset: 0;
+  /* Het verloop staat vast over de hele baan; de stand knipt de bovenkant
+     weg. -60..0 dBFS: groen tot -12, geel tot -3, dan rood. */
+  clip-path: inset(100% 0 0 0);
+  background: linear-gradient(
+    to top,
+    var(--meter-laag) 0%,
+    var(--meter-laag) 80%,
+    var(--meter-midden) 80%,
+    var(--meter-midden) 95%,
+    var(--meter-hoog) 95%
+  );
+}
+
+.meter-piek {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  bottom: 0;
+  background: #fff9;
+  opacity: 0;
+}
+
+.mini-meters {
+  display: flex;
+  gap: 2px;
 }
 
 /* --- Patchbay --- */
@@ -321,10 +816,11 @@ button {
 .voet {
   display: flex;
   align-items: center;
-  gap: 24px;
-  padding: 10px 20px;
+  gap: 18px;
+  padding: 6px 14px;
   border-top: 1px solid var(--lijn);
-  background: var(--achter);
+  background: var(--balk);
+  font-size: 11px;
   color: var(--poort);
 }
 
@@ -360,390 +856,14 @@ button {
   margin: 0;
 }
 
-/* --- Kop: mixer --- */
-
-.groen {
-  color: var(--groen);
-}
-
-.knop:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.uitklap {
-  position: relative;
-}
-
-.menu {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 6px);
-  z-index: 10;
-  min-width: 240px;
-  display: flex;
-  flex-direction: column;
-  padding: 4px;
-  background: var(--knop);
-  border: 1px solid var(--knop-rand);
-  border-radius: 6px;
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
-}
-
-.menu button {
-  display: flex;
-  gap: 6px;
-  align-items: baseline;
-  min-height: 36px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  text-align: left;
-}
-
-.menu button:hover {
-  background: var(--gekozen);
-}
-
-.bevestig {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px 16px;
-  padding: 10px 20px;
-  background: #2a2116;
-  border-bottom: 1px solid #5a4421;
-  color: #f5d9a8;
-}
-
-.knop-amber-rand,
-.knop-amber {
-  min-height: 40px;
-  padding: 0 14px;
-  border-radius: 6px;
-}
-
-.knop-amber-rand {
-  border: 1px solid #5a4421;
-  background: transparent;
-  color: #f5d9a8;
-}
-
-.knop-amber {
-  border: 0;
-  background: var(--amber);
-  color: #1a1206;
-  font-weight: 700;
-}
-
-/* --- Mixer --- */
-
-.mixer {
-  flex: 1;
-  overflow: auto;
-  padding: 12px 16px 40px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.rij {
-  display: flex;
-  gap: 12px;
-  padding: 10px 0;
-  border-bottom: 1px solid #1f2326;
-}
-
-.rij.laatste {
-  border-bottom: 0;
-}
-
-.rij-titel {
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--zachter);
-  text-align: center;
-}
-
-.strips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.leeg-rij {
-  margin: 0;
-  align-self: center;
-}
-
-.strip {
-  width: 112px;
-  background: var(--module);
-  border: 1px solid #272b2f;
-  border-radius: 6px;
-  padding: 7px;
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-
-.strip.gekozen {
-  border: 2px solid var(--groen);
-  padding: 6px;
-}
-
-.strip-kop {
-  position: relative;
-  background: #24282c;
-  border-radius: 4px;
-  padding: 5px 4px;
-  text-align: center;
-}
-
-.strip-naam {
-  font-weight: 700;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.strip.stil .strip-naam {
-  color: #9aa1a8;
-}
-
-.strip-onder {
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 10px;
-  color: var(--zacht);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.verberg {
-  position: absolute;
-  top: 1px;
-  right: 1px;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  border: 0;
-  border-radius: 3px;
-  background: transparent;
-  color: var(--zacht);
-  line-height: 1;
-  opacity: 0;
-}
-
-.strip-kop:hover .verberg,
-.verberg:focus-visible {
-  opacity: 1;
-}
-
-.verberg:hover {
-  background: var(--gekozen);
-  color: var(--tekst);
-}
-
-.route,
-.route-leeg {
-  min-height: 40px;
-}
-
-.route {
-  border: 1px solid var(--knop-rand);
-  border-radius: 4px;
-  background: var(--balk);
-  color: var(--zachter);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding: 0 6px;
-}
-
-.route.bewerk {
-  color: var(--poort);
-}
-
-.route.aan {
-  border: 0;
-  background: var(--groen);
-  color: #0d1a12;
-  font-weight: 700;
-}
-
-.route.aangepast {
-  border: 1px solid var(--amber);
-  background: linear-gradient(90deg, var(--amber) 50%, #2a2116 50%);
-  color: #1a1206;
-  font-weight: 700;
-}
-
-.regel {
-  min-height: 14px;
-  font-size: 10px;
-  text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--zacht);
-}
-
-.regel.amber {
-  color: var(--amber);
-}
-
-.fader-vak {
-  height: 168px;
-  display: flex;
-  justify-content: center;
-  padding-top: 4px;
-}
-
-.geen-volume {
-  align-self: center;
-  font-size: 10px;
-  color: var(--zachter);
-}
-
-.fader {
-  position: relative;
-  width: 40px;
-  cursor: ns-resize;
-  touch-action: none;
-}
-
-.fader .gleuf {
-  position: absolute;
-  left: 50%;
-  top: 9px;
-  bottom: 9px;
-  width: 4px;
-  margin-left: -2px;
-  background: #0b0c0d;
-  border-radius: 2px;
-}
-
-.fader .nul {
-  position: absolute;
-  left: 4px;
-  right: 4px;
-  height: 1px;
-  background: #3a4046;
-}
-
-.fader .knop-fader {
-  position: absolute;
-  left: 50%;
-  width: 28px;
-  height: 18px;
-  margin-left: -14px;
-  border-radius: 3px;
-  background: #c9cdd1;
-  border-top: 2px solid #e6e8ea;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.6);
-}
-
-.fader.uit .knop-fader {
-  background: #6c737a;
-  border-top-color: #8a9198;
-}
-
-.db {
-  text-align: center;
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 12px;
-  color: var(--poort);
-}
-
-.mute {
-  min-height: 32px;
-  border: 1px solid var(--knop-rand);
-  border-radius: 4px;
-  background: #24282c;
-  color: #c9cdd1;
-  font-weight: 600;
-}
-
-.mute.aan {
-  border-color: var(--amber);
-  background: var(--amber);
-  color: #1a1206;
-}
-
-.mute:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-/* --- Meters --- */
-
-.meters {
-  display: flex;
-  gap: 2px;
-  padding: 9px 0;
-}
-
-.meter {
-  position: relative;
-  width: 4px;
-  height: 100%;
-  background: #0b0c0d;
-  overflow: hidden;
-}
-
-.meter.klein {
-  height: 20px;
-}
-
-.meter-vul {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 0;
-  background: var(--groen);
-}
-
-.meter-vul.vol {
-  background: var(--rood);
-}
-
-.meter-piek {
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 2px;
-  margin-bottom: -1px;
-  background: #6fe394;
-  opacity: 0;
-}
-
-.mini-meters {
-  display: flex;
-  gap: 2px;
-}
-
-.fader-vak {
-  gap: 10px;
-}
-
 /* --- MIDI --- */
-
-.strip.midi {
-  width: 140px;
-}
 
 .led {
   width: 10px;
   height: 10px;
   border-radius: 50%;
   flex: none;
-  background: #2a2f34;
+  background: #2f343e;
 }
 
 .led.aan {
@@ -754,10 +874,10 @@ button {
 .midi-blok {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 8px 6px;
-  background: var(--balk);
-  border-radius: 4px;
+  gap: 5px;
+  padding: 5px 4px;
+  background: #1a1d22;
+  border-radius: 3px;
 }
 
 .midi-kop {
@@ -781,9 +901,9 @@ button {
 }
 
 .kanaalraster span {
-  line-height: 16px;
+  line-height: 13px;
   border-radius: 2px;
-  background: #22262a;
+  background: #22262d;
   color: #5a6168;
 }
 
@@ -799,9 +919,9 @@ button {
 
 .soortraster span,
 .soortbalk span {
-  line-height: 16px;
+  line-height: 14px;
   border-radius: 3px;
-  border: 1px solid #2a2f34;
+  border: 1px solid #2f343e;
   color: #5a6168;
 }
 
@@ -866,7 +986,7 @@ button {
   width: 8px;
   height: 8px;
   border-radius: 1px;
-  background: #2a2f34;
+  background: #2f343e;
 }
 
 .kanaalbalk span.aan {
