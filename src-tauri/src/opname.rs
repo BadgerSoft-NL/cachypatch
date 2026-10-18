@@ -159,8 +159,7 @@ fn veilig(naam: &str) -> String {
 
 /// `~/Recordings/2026-10-18_1043`, met een volgnummer als die al bestaat.
 pub fn nieuwe_map() -> PathBuf {
-    let thuis = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| ".".into());
-    let basis = thuis.join("Recordings").join(tijdstempel());
+    let basis = opnamemap().join(tijdstempel());
     let mut map = basis.clone();
     let mut n = 2;
     while map.exists() {
@@ -168,6 +167,29 @@ pub fn nieuwe_map() -> PathBuf {
         n += 1;
     }
     map
+}
+
+/// `~/Recordings`: elke take krijgt hierin een eigen map.
+pub fn opnamemap() -> PathBuf {
+    let thuis = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| ".".into());
+    thuis.join("Recordings")
+}
+
+/// Opent `map` in de bestandsbeheerder (`xdg-open`), maar alleen als hij in
+/// `~/Recordings` ligt; anders `~/Recordings` zelf, die zo nodig eerst
+/// gemaakt wordt.
+pub fn open_map(map: Option<&str>) -> std::io::Result<()> {
+    let basis = opnamemap();
+    std::fs::create_dir_all(&basis)?;
+    let binnen = |m: &PathBuf| match (m.canonicalize(), basis.canonicalize()) {
+        (Ok(m), Ok(b)) => m.starts_with(b),
+        _ => false,
+    };
+    let doel = map.map(PathBuf::from).filter(binnen).unwrap_or(basis);
+    let mut kind = std::process::Command::new("xdg-open").arg(&doel).spawn()?;
+    // Oogsten als hij klaar is, anders blijft er een zombie hangen.
+    std::thread::spawn(move || kind.wait());
+    Ok(())
 }
 
 fn tijdstempel() -> String {

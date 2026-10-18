@@ -214,6 +214,13 @@ export function startBus(bus: BusOpname) {
   nepNeemOp([bus]);
 }
 
+/** Opent de map van de laatste take (of `~/Recordings`) in de
+ *  bestandsbeheerder. Zonder Tauri kan dat niet. */
+export function openMap(map: string | null) {
+  if (inTauri) invoke("open_map", { map });
+  else console.info("open folder:", map ?? "~/Recordings");
+}
+
 export function stopBus(naam: string) {
   if (inTauri) return void invoke("stop_bus", { naam });
   nepBussen.delete(naam);
