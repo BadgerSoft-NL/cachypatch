@@ -5,7 +5,7 @@
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use cachypatch_lib::graaf::{Graaf, Melding};
+use pecanpatch_lib::graaf::{Graaf, Melding};
 
 fn main() {
     let (tx, rx) = mpsc::channel();
@@ -32,5 +32,5 @@ fn main() {
         let naam = nu.poorten.iter().find(|p| p.id == poort).map(|p| p.naam.clone()).unwrap_or_default();
         println!("{naam} ({poort}): {n} events, kanalen {k:016b}, soorten {s:04b}, laatste {l:?}");
     }
-    println!("knopen met cachypatch in naam: {}", nu.knopen.iter().filter(|k| k.naam.starts_with("cachypatch")).count());
+    println!("knopen met pecanpatch in naam: {}", nu.knopen.iter().filter(|k| k.naam.starts_with("pecanpatch")).count());
 }

@@ -46,7 +46,7 @@ export function bouwMidiMixer(g: Graaf): MidiMixerModel {
         poort: p,
         naam: ding.titel,
         onder: isBus(knopen.get(p.knoop)!)
-          ? "CachyPatch · .mid"
+          ? "Pecan Patch · .mid"
           : (ding.isApp ? "app" : "device") +
           ((perDing.get(ding.sleutel) ?? 0) > 1 ? ` · ${poortLabel(p, "midi")}` : ""),
       }))

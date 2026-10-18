@@ -2,7 +2,7 @@
 // en terug. Die kijken pas bij het uitvoeren naar de graph zoals hij dan is,
 // want link-ids veranderen: een link die terugkomt is een nieuwe link.
 //
-// Alleen wat CachyPatch zelf deed staat erin. Verandert iets anders de graph
+// Alleen wat Pecan Patch zelf deed staat erin. Verandert iets anders de graph
 // intussen (een app sluit), dan doet terug wat nog kan.
 
 import { useSyncExternalStore } from "react";
