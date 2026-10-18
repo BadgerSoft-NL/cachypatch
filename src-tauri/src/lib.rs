@@ -1,5 +1,6 @@
 pub mod graaf;
 pub mod meter;
+pub mod midimeter;
 
 use tauri::{Emitter, Manager, State};
 
@@ -55,6 +56,9 @@ pub fn run() {
                 }
                 Melding::Pieken(p) => {
                     let _ = handle.emit("pieken", p);
+                }
+                Melding::Midi(m) => {
+                    let _ = handle.emit("midi", m);
                 }
             })));
             Ok(())
