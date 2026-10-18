@@ -6,7 +6,7 @@
 use std::sync::mpsc;
 use std::time::Duration;
 
-use cachypatch_lib::graaf::{Graaf, Melding, Momentopname, Opdracht};
+use pecanpatch_lib::graaf::{Graaf, Melding, Momentopname, Opdracht};
 
 fn main() {
     let mut args = std::env::args().skip(1);

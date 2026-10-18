@@ -38,7 +38,7 @@ export interface BusDef {
 }
 
 export const UIT_DB = -90;
-const OPSLAG = "cachypatch.bussen";
+const OPSLAG = "pecanpatch.bussen";
 const BEGIN: BusConfig = {
   paren: [{ gekoppeld: true }],
   stand: { "rec-1-2": { db: 0, mute: false, gewapend: true } },

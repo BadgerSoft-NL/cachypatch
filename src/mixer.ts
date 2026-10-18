@@ -69,7 +69,7 @@ export interface Mixer {
   handwerk: {
     kabels: number[];
     doelen: number[];
-    /** Links die CachyPatch legt om losstaande streams terug naar de standaard te zetten. */
+    /** Links die Pecan Patch legt om losstaande streams terug naar de standaard te zetten. */
     herstel: [number, number][];
     /** Hoeveel streams dat zijn. */
     losse: number;
@@ -104,7 +104,7 @@ export function bouwMixer(g: Graaf): Mixer {
       for (const d of busDefs) {
         const ps = d.kanalen.map((c) => ins.find((p) => p.naam === `rec_${c + 1}`));
         if (ps.some((p) => !p)) continue;
-        const s = strip(k, ps as Poort[], d.kanalen, "bestemmingen", d.naam, "CachyPatch", false, false);
+        const s = strip(k, ps as Poort[], d.kanalen, "bestemmingen", d.naam, "Pecan Patch", false, false);
         s.bus = d;
         s.sleutel = `bus|${d.sleutel}`;
         bestemmingen.push(s);
@@ -158,7 +158,7 @@ export function bouwMixer(g: Graaf): Mixer {
 
   // Een link is "auto" als hij ligt waar WirePlumber hem zelf zou leggen: van
   // een stream zonder doel naar de standaard. Wie hem legde maakt niet uit;
-  // CachyPatch legt zo'n link zelf als hij een route herstelt, omdat
+  // Pecan Patch legt zo'n link zelf als hij een route herstelt, omdat
   // WirePlumber een stream niet opnieuw bekijkt als zijn doel niet verandert.
   const auto = (c: Kabel): boolean => {
     const uit = knopen.get(c.uit_knoop);
@@ -195,7 +195,7 @@ export function bouwMixer(g: Graaf): Mixer {
   );
   const doelen = streams.filter((k) => k.doel !== null).map((k) => k.id);
   // Een stream zonder doel die na het opruimen nergens meer heen gaat, zet
-  // CachyPatch zelf terug op de standaard.
+  // Pecan Patch zelf terug op de standaard.
   const herstel: [number, number][] = [];
   let losse = 0;
   for (const k of streams) {
@@ -292,7 +292,7 @@ function beschrijf(kabels: Kabel[], poorten: Poort[]): string {
  * De groene knop. Aan → uit haalt de links weg; een doel blijft staan, anders
  * stuurt WirePlumber de stream meteen terug naar de standaard. Uit → aan:
  * - een stream zonder route, naar waar WirePlumber hem toch heen zou sturen:
- *   CachyPatch legt de links zelf (WirePlumber doet niets bij een doel dat
+ *   Pecan Patch legt de links zelf (WirePlumber doet niets bij een doel dat
  *   niet verandert);
  * - een stream zonder route, naar een andere hele node: `target.object`;
  * - anders: handmatige links.
@@ -337,7 +337,7 @@ export function telHandwerk(m: Mixer): number {
 /**
  * Alles terug aan WirePlumber: handmatige links weg, doelen gewist (dan zet
  * WirePlumber de stream zelf op de standaard), en streams die dan nergens heen
- * gaan krijgen hun standaardroute van CachyPatch.
+ * gaan krijgen hun standaardroute van Pecan Patch.
  */
 export function terugNaarAuto(m: Mixer) {
   ontkoppel(m.handwerk.kabels);

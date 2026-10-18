@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "CachyPatch",
+  "productName": "Pecan Patch",
   "version": "0.1.0",
-  "identifier": "nl.jetse.cachypatch",
+  "identifier": "nl.jetse.pecanpatch",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "CachyPatch",
+        "title": "Pecan Patch",
         "width": 1400,
         "height": 900,
         "minWidth": 900,

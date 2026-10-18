@@ -32,7 +32,7 @@ use pw::spa;
 use pw::sys as pw_sys;
 use serde::Serialize;
 
-pub const BUS_NAAM: &str = "cachypatch-opname";
+pub const BUS_NAAM: &str = "pecanpatch-opname";
 /// Ticks per kwartnoot in het MIDI-bestand.
 const PPQ: u32 = 480;
 /// MIDI Clock: 24 pulsen per kwartnoot.
@@ -97,7 +97,7 @@ pub fn schrijver(
     let (tx, rx) = mpsc::channel::<Bericht>();
     let map = map.to_owned();
     let draad = std::thread::Builder::new()
-        .name("cachypatch-schrijver".into())
+        .name("pecanpatch-schrijver".into())
         .spawn(move || {
             let mut wav = Vec::new();
             for s in &sporen {
@@ -400,7 +400,7 @@ impl Bus {
             *pw::keys::NODE_NAME => BUS_NAAM,
             *pw::keys::NODE_DESCRIPTION => "Rec bus",
             *pw::keys::MEDIA_NAME => "Rec bus",
-            *pw::keys::APP_NAME => "CachyPatch",
+            *pw::keys::APP_NAME => "Pecan Patch",
             "node.autoconnect" => "false",
             "node.dont-reconnect" => "true",
         };
@@ -476,7 +476,7 @@ impl Bus {
     }
 
     /// Het node-id van de bus, zodra de server hem kent. Niet de naam: een
-    /// tweede CachyPatch (een voorbeeld naast de app) heeft er ook een.
+    /// tweede Pecan Patch (een voorbeeld naast de app) heeft er ook een.
     pub fn knoop_id(&self) -> Option<u32> {
         // SAFETY: het filter leeft.
         let id = unsafe { pw_sys::pw_filter_get_node_id(self.filter) };
@@ -598,7 +598,7 @@ mod tests {
 
     #[test]
     fn midi_bestand_schrijven() {
-        let map = std::env::temp_dir().join(format!("cachypatch-test-{}", std::process::id()));
+        let map = std::env::temp_dir().join(format!("pecanpatch-test-{}", std::process::id()));
         std::fs::create_dir_all(&map).unwrap();
         let pad = map.join("t.mid");
         let m = MidiBestand {

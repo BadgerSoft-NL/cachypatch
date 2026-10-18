@@ -1,11 +1,11 @@
-//! De graph zoals CachyPatch hem ziet, als JSON op stdout. Schrijft niets.
+//! De graph zoals Pecan Patch hem ziet, als JSON op stdout. Schrijft niets.
 //!
 //! `cargo run --example graaf`
 
 use std::sync::mpsc;
 use std::time::Duration;
 
-use cachypatch_lib::graaf::{Graaf, Melding};
+use pecanpatch_lib::graaf::{Graaf, Melding};
 
 fn main() {
     let (tx, rx) = mpsc::channel();

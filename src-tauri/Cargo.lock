@@ -385,21 +385,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cachypatch"
-version = "0.1.0"
-dependencies = [
- "hound",
- "libc",
- "midly",
- "pipewire",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-single-instance",
-]
-
-[[package]]
 name = "cairo-rs"
 version = "0.18.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2562,6 +2547,21 @@ dependencies = [
  "redox_syscall",
  "smallvec",
  "windows-link",
+]
+
+[[package]]
+name = "pecanpatch"
+version = "0.1.0"
+dependencies = [
+ "hound",
+ "libc",
+ "midly",
+ "pipewire",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-single-instance",
 ]
 
 [[package]]
