@@ -13,6 +13,10 @@
 //! Object-ids zijn per sessie: een apparaat dat terugkomt krijgt nieuwe.
 //! Herkennen gaat daarom via `node.name`, `port.name` en de serials, die hier
 //! allemaal meekomen.
+//!
+//! Veranderen gaat via [`Opdracht`]: een link leggen of weghalen, een stream
+//! verplaatsen met `target.object`, volume en mute. Ook dat is uitvoeren, geen
+//! beslissen.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -22,6 +26,8 @@ use std::time::Duration;
 
 use pipewire as pw;
 use pw::node::NodeState;
+use pw::spa::param::ParamType;
+use pw::spa::pod::{Object, Pod, Property, Value, ValueArray};
 use pw::spa::utils::dict::DictRef;
 use pw::types::ObjectType;
 use serde::Serialize;
@@ -76,6 +82,12 @@ pub struct Knoop {
     pub media: Option<String>,
     /// `running`, `idle`, `suspended`, `creating` of `error`.
     pub stand: Option<&'static str>,
+    /// `target.object` uit de `default`-metadata: waar de stream naartoe is
+    /// verplaatst. Een serial of een `node.name`; `None` = WirePlumber kiest.
+    pub doel: Option<String>,
+    /// Volume per kanaal, lineair (1.0 = 0 dB), uit de Props van de node.
+    pub volume: Option<Vec<f32>>,
+    pub mute: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -106,6 +118,9 @@ pub struct Kabel {
     pub uit_poort: u32,
     pub in_knoop: u32,
     pub in_poort: u32,
+    /// De client die de link legde. Is dat WirePlumber, dan is het beleid;
+    /// anders handwerk.
+    pub client: Option<u32>,
 }
 
 /// Alles wat de schil nodig heeft om de graph te tekenen.
@@ -118,6 +133,8 @@ pub struct Momentopname {
     /// `node.name` van de standaard-uitgang en -ingang.
     pub standaard_sink: Option<String>,
     pub standaard_bron: Option<String>,
+    /// De client-ids van WirePlumber (meestal één).
+    pub wireplumber: Vec<u32>,
     pub knopen: Vec<Knoop>,
     pub poorten: Vec<Poort>,
     pub kabels: Vec<Kabel>,
@@ -126,39 +143,74 @@ pub struct Momentopname {
 /// Wordt aangeroepen met elke nieuwe stand, vanaf de graph-draad.
 pub type Melder = Box<dyn Fn(&Momentopname) + Send + 'static>;
 
+/// Wat de schil de graph kan laten doen. Alles op object-id: de schil werkt
+/// met de momentopname van zojuist, en een id die intussen weg is doet niets.
+#[derive(Clone, Debug)]
+pub enum Opdracht {
+    /// Een link van een uitgangspoort naar een ingangspoort. Blijft bestaan
+    /// als CachyPatch sluit (`object.linger`): wat je patcht, blijft gepatcht.
+    Verbind { uit: u32, naar: u32 },
+    /// Een link weghalen, van wie hij ook is.
+    Ontkoppel { kabel: u32 },
+    /// `target.object` van een node zetten (een serial) of wissen. Dan
+    /// verplaatst WirePlumber de stream, zoals bij pavucontrol.
+    ZetDoel { knoop: u32, doel: Option<String> },
+    /// Volume per kanaal, lineair.
+    ZetVolume { knoop: u32, volume: Vec<f32> },
+    ZetMute { knoop: u32, mute: bool },
+}
+
 /// De levende spiegel. Leeft zo lang als de app; de draad stopt niet.
 pub struct Graaf {
     laatste: Arc<Mutex<Momentopname>>,
+    opdrachten: Mutex<pw::channel::Sender<Opdracht>>,
 }
 
 impl Graaf {
     pub fn start(melder: Melder) -> Self {
         let laatste = Arc::new(Mutex::new(Momentopname::default()));
         let gedeeld = Arc::clone(&laatste);
+        let (tx, rx) = pw::channel::channel();
         std::thread::Builder::new()
             .name("cachypatch-graaf".to_owned())
-            .spawn(move || draad(gedeeld, melder))
+            .spawn(move || draad(gedeeld, melder, rx))
             .expect("graph-draad starten");
-        Self { laatste }
+        Self {
+            laatste,
+            opdrachten: Mutex::new(tx),
+        }
     }
 
     pub fn nu(&self) -> Momentopname {
         self.laatste.lock().unwrap().clone()
     }
+
+    /// Geeft de opdracht door aan de graph-draad en wacht niet.
+    pub fn doe(&self, o: Opdracht) {
+        let _ = self.opdrachten.lock().unwrap().send(o);
+    }
 }
 
 /// Blijft verbinden: als de server herstart of even weg is, komt de spiegel
 /// vanzelf terug.
-fn draad(laatste: Arc<Mutex<Momentopname>>, melder: Melder) {
+fn draad(
+    laatste: Arc<Mutex<Momentopname>>,
+    melder: Melder,
+    mut rx: pw::channel::Receiver<Opdracht>,
+) {
     pw::init();
     let meld: Rc<dyn Fn(Momentopname)> = Rc::new(move |m: Momentopname| {
         melder(&m);
         *laatste.lock().unwrap() = m;
     });
     loop {
-        if let Err(fout) = sessie(Rc::clone(&meld)) {
-            eprintln!("cachypatch: PipeWire: {fout}");
-        }
+        rx = match sessie(Rc::clone(&meld), rx) {
+            (Ok(()), rx) => rx,
+            (Err(fout), rx) => {
+                eprintln!("cachypatch: PipeWire: {fout}");
+                rx
+            }
+        };
         meld(Momentopname::default());
         std::thread::sleep(OPNIEUW_NA);
     }
@@ -170,6 +222,11 @@ struct Staat {
     knopen: BTreeMap<u32, Knoop>,
     poorten: BTreeMap<u32, Poort>,
     kabels: BTreeMap<u32, Kabel>,
+    /// Client-id → `application.name`.
+    clients: BTreeMap<u32, String>,
+    /// `target.object` per node-id, uit de `default`-metadata. Apart van de
+    /// knopen, want de metadata kan eerder binnenkomen dan de node.
+    doelen: BTreeMap<u32, String>,
     /// Uit de `settings`-metadata.
     rate: Option<u32>,
     force_rate: Option<u32>,
@@ -190,7 +247,20 @@ impl Staat {
             quantum: self.force_quantum.or(self.quantum),
             standaard_sink: self.standaard_sink.clone(),
             standaard_bron: self.standaard_bron.clone(),
-            knopen: self.knopen.values().cloned().collect(),
+            wireplumber: self
+                .clients
+                .iter()
+                .filter(|(_, naam)| naam.as_str() == "WirePlumber")
+                .map(|(id, _)| *id)
+                .collect(),
+            knopen: self
+                .knopen
+                .values()
+                .map(|k| Knoop {
+                    doel: self.doelen.get(&k.id).cloned(),
+                    ..k.clone()
+                })
+                .collect(),
             poorten: self.poorten.values().cloned().collect(),
             kabels: self.kabels.values().cloned().collect(),
         }
@@ -215,6 +285,9 @@ impl Staat {
                         app: None,
                         media: None,
                         stand: None,
+                        doel: None,
+                        volume: None,
+                        mute: None,
                     },
                 );
             }
@@ -256,8 +329,13 @@ impl Staat {
                         uit_poort,
                         in_knoop,
                         in_poort,
+                        client: getal(props, "client.id"),
                     },
                 );
+            }
+            ObjectType::Client => {
+                self.clients
+                    .insert(id, tekst(props, "application.name").unwrap_or_default());
             }
             _ => return,
         }
@@ -267,7 +345,9 @@ impl Staat {
     fn weg(&mut self, id: u32) {
         let was = self.knopen.remove(&id).is_some()
             | self.poorten.remove(&id).is_some()
-            | self.kabels.remove(&id).is_some();
+            | self.kabels.remove(&id).is_some()
+            | self.clients.remove(&id).is_some()
+            | self.doelen.remove(&id).is_some();
         self.vuil |= was;
     }
 
@@ -293,6 +373,41 @@ impl Staat {
                 k.bijnaam = Some(b);
             }
         }
+        self.vuil = true;
+    }
+
+    /// De Props van een node: volume en mute. Streams sturen er soms een
+    /// zonder volume tussendoor; alleen wat er staat wordt overgenomen.
+    fn props(&mut self, id: u32, pod: &Pod) {
+        let Some(k) = self.knopen.get_mut(&id) else {
+            return;
+        };
+        let Ok((_, Value::Object(obj))) =
+            pw::spa::pod::deserialize::PodDeserializer::deserialize_any_from(pod.as_bytes())
+        else {
+            return;
+        };
+        for p in obj.properties {
+            match (p.key, p.value) {
+                (pw::spa::sys::SPA_PROP_channelVolumes, Value::ValueArray(ValueArray::Float(v))) => {
+                    k.volume = Some(v);
+                    self.vuil = true;
+                }
+                (pw::spa::sys::SPA_PROP_mute, Value::Bool(m)) => {
+                    k.mute = Some(m);
+                    self.vuil = true;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// `target.object` van één node, of het wissen ervan.
+    fn doel(&mut self, knoop: u32, waarde: Option<&str>) {
+        match waarde.map(|w| w.trim_matches('"')) {
+            Some(w) if !w.is_empty() => self.doelen.insert(knoop, w.to_owned()),
+            _ => self.doelen.remove(&knoop),
+        };
         self.vuil = true;
     }
 
@@ -328,20 +443,47 @@ fn naam_uit_json(waarde: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// Een Props-pod met één eigenschap, om naar een node te sturen.
+fn props_pod(eigenschap: Property) -> Option<Vec<u8>> {
+    let obj = Object {
+        type_: pw::spa::utils::SpaTypes::ObjectParamProps.as_raw(),
+        id: ParamType::Props.as_raw(),
+        properties: vec![eigenschap],
+    };
+    pw::spa::pod::serialize::PodSerializer::serialize(
+        std::io::Cursor::new(Vec::new()),
+        &Value::Object(obj),
+    )
+    .ok()
+    .map(|(c, _)| c.into_inner())
+}
+
 /// Gebonden proxies met hun listener. Ze worden nooit gelezen: ze bewaren is
 /// het luisteren, weggooien is ophouden.
 #[allow(dead_code)]
 enum Binding {
     Knoop(pw::node::Node, pw::node::NodeListener),
-    Metadata(pw::metadata::Metadata, pw::metadata::MetadataListener),
+    /// Met de naam: `default` of `settings`.
+    Metadata(pw::metadata::Metadata, pw::metadata::MetadataListener, String),
 }
 
-/// Eén verbinding met de server, tot die wegvalt.
-fn sessie(meld: Rc<dyn Fn(Momentopname)>) -> Result<(), pw::Error> {
-    let mainloop = pw::main_loop::MainLoopRc::new(None)?;
-    let context = pw::context::ContextRc::new(&mainloop, None)?;
-    let core = context.connect_rc(None)?;
-    let registry = core.get_registry_rc()?;
+/// Eén verbinding met de server, tot die wegvalt. Geeft de ontvanger van de
+/// opdrachten terug, want die gaat mee naar de volgende sessie.
+fn sessie(
+    meld: Rc<dyn Fn(Momentopname)>,
+    rx: pw::channel::Receiver<Opdracht>,
+) -> (Result<(), pw::Error>, pw::channel::Receiver<Opdracht>) {
+    let opzet = || -> Result<_, pw::Error> {
+        let mainloop = pw::main_loop::MainLoopRc::new(None)?;
+        let context = pw::context::ContextRc::new(&mainloop, None)?;
+        let core = context.connect_rc(None)?;
+        let registry = core.get_registry_rc()?;
+        Ok((mainloop, context, core, registry))
+    };
+    let (mainloop, _context, core, registry) = match opzet() {
+        Ok(v) => v,
+        Err(fout) => return (Err(fout), rx),
+    };
 
     let staat = Rc::new(RefCell::new(Staat::default()));
     let bindingen: Rc<RefCell<BTreeMap<u32, Binding>>> = Rc::default();
@@ -383,11 +525,22 @@ fn sessie(meld: Rc<dyn Fn(Momentopname)>) -> Result<(), pw::Error> {
                         let Ok(node) = registry.bind::<pw::node::Node, _>(g) else {
                             return;
                         };
-                        let staat = Rc::clone(&staat);
                         let listener = node
                             .add_listener_local()
-                            .info(move |info| staat.borrow_mut().node_info(id, info))
+                            .info({
+                                let staat = Rc::clone(&staat);
+                                move |info| staat.borrow_mut().node_info(id, info)
+                            })
+                            .param({
+                                let staat = Rc::clone(&staat);
+                                move |_seq, soort, _index, _next, pod| {
+                                    if let (ParamType::Props, Some(pod)) = (soort, pod) {
+                                        staat.borrow_mut().props(id, pod);
+                                    }
+                                }
+                            })
                             .register();
+                        node.subscribe_params(&[ParamType::Props]);
                         bindingen
                             .borrow_mut()
                             .insert(id, Binding::Knoop(node, listener));
@@ -403,22 +556,33 @@ fn sessie(meld: Rc<dyn Fn(Momentopname)>) -> Result<(), pw::Error> {
                             return;
                         };
                         let staat = Rc::clone(&staat);
+                        let naam_ook = naam.clone();
                         let listener = meta
                             .add_listener_local()
                             .property(move |subject, sleutel, _type, waarde| {
-                                // Alleen globale instellingen; per-node
-                                // metadata (target.object) komt later.
-                                if subject == 0 {
-                                    if let Some(sleutel) = sleutel {
-                                        staat.borrow_mut().metadata(&naam, sleutel, waarde);
+                                let mut s = staat.borrow_mut();
+                                match sleutel {
+                                    // Alles wissen.
+                                    None => {
+                                        if naam == "default" {
+                                            s.doelen.clear();
+                                            s.vuil = true;
+                                        }
                                     }
+                                    Some("target.object") if naam == "default" && subject != 0 => {
+                                        s.doel(subject, waarde)
+                                    }
+                                    Some(sleutel) if subject == 0 => {
+                                        s.metadata(&naam, sleutel, waarde)
+                                    }
+                                    _ => {}
                                 }
                                 0
                             })
                             .register();
                         bindingen
                             .borrow_mut()
-                            .insert(id, Binding::Metadata(meta, listener));
+                            .insert(id, Binding::Metadata(meta, listener, naam_ook));
                     }
                     _ => {}
                 }
@@ -433,6 +597,19 @@ fn sessie(meld: Rc<dyn Fn(Momentopname)>) -> Result<(), pw::Error> {
             }
         })
         .register();
+
+    // Links die wij legden. Ze blijven bestaan zonder proxy (linger), maar de
+    // proxy moet leven tot de server hem heeft gemaakt; een handvol bewaren
+    // is ruim genoeg.
+    let gelegd: Rc<RefCell<std::collections::VecDeque<pw::link::Link>>> = Rc::default();
+
+    let ontvanger = rx.attach(mainloop.loop_(), {
+        let core = core.clone();
+        let registry = registry.clone();
+        let bindingen = Rc::clone(&bindingen);
+        let gelegd = Rc::clone(&gelegd);
+        move |o| uitvoeren(o, &core, &registry, &bindingen.borrow(), &gelegd)
+    });
 
     let timer = mainloop.loop_().add_timer({
         let staat = Rc::clone(&staat);
@@ -450,5 +627,68 @@ fn sessie(meld: Rc<dyn Fn(Momentopname)>) -> Result<(), pw::Error> {
 
     mainloop.run();
     drop(timer);
-    Ok(())
+    (Ok(()), ontvanger.deattach())
+}
+
+fn uitvoeren(
+    o: Opdracht,
+    core: &pw::core::CoreRc,
+    registry: &pw::registry::RegistryRc,
+    bindingen: &BTreeMap<u32, Binding>,
+    gelegd: &RefCell<std::collections::VecDeque<pw::link::Link>>,
+) {
+    match o {
+        Opdracht::Verbind { uit, naar } => {
+            let props = pw::properties::properties! {
+                "link.output.port" => uit.to_string(),
+                "link.input.port" => naar.to_string(),
+                "object.linger" => "true",
+            };
+            match core.create_object::<pw::link::Link>("link-factory", &props) {
+                Ok(link) => {
+                    let mut g = gelegd.borrow_mut();
+                    g.push_back(link);
+                    while g.len() > 64 {
+                        g.pop_front();
+                    }
+                }
+                Err(fout) => eprintln!("cachypatch: link {uit} → {naar}: {fout}"),
+            }
+        }
+        Opdracht::Ontkoppel { kabel } => {
+            registry.destroy_global(kabel);
+        }
+        Opdracht::ZetDoel { knoop, doel } => {
+            let Some(meta) = bindingen.values().find_map(|b| match b {
+                Binding::Metadata(m, _, naam) if naam == "default" => Some(m),
+                _ => None,
+            }) else {
+                return;
+            };
+            meta.set_property(knoop, "target.object", None, doel.as_deref());
+        }
+        Opdracht::ZetVolume { knoop, volume } => {
+            let eigenschap = Property::new(
+                pw::spa::sys::SPA_PROP_channelVolumes,
+                Value::ValueArray(ValueArray::Float(volume)),
+            );
+            stuur_props(bindingen, knoop, eigenschap);
+        }
+        Opdracht::ZetMute { knoop, mute } => {
+            let eigenschap = Property::new(pw::spa::sys::SPA_PROP_mute, Value::Bool(mute));
+            stuur_props(bindingen, knoop, eigenschap);
+        }
+    }
+}
+
+fn stuur_props(bindingen: &BTreeMap<u32, Binding>, knoop: u32, eigenschap: Property) {
+    let Some(Binding::Knoop(node, _)) = bindingen.get(&knoop) else {
+        return;
+    };
+    let Some(bytes) = props_pod(eigenschap) else {
+        return;
+    };
+    if let Some(pod) = Pod::from_bytes(&bytes) {
+        node.set_param(ParamType::Props, 0, pod);
+    }
 }

@@ -2,11 +2,15 @@
 // ontvangt. Modules zijn vrij te verslepen; "Rearrange" in de kop gooit de
 // versleepte plekken weg en zet alles terug in de beginindeling.
 //
+// Een kabel leg je door van een stip naar een stip te slepen (welke kant op
+// maakt niet uit); klikken op een kabel haalt hem weg.
+//
 // Alle maten liggen vast, dus de plek van elke poort volgt uit de rekensom
 // hieronder en niet uit het meten van de DOM. Zo lopen kabels nooit een
 // frame achter op een module die versleept wordt.
 
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ontkoppel, verbind } from "./api";
 import type { Indeling, Module } from "./indeling";
 import { IcoonTegel } from "./iconen";
 
@@ -16,8 +20,9 @@ const RIJ = 28;
 const BINNEN = 4;
 const RAND = 1;
 const TUSSEN = 13;
-const KOPJE = 26;
-const NA_GROEP = 22;
+// Tussen twee soorten (apps, hardware) iets meer lucht. Geen kopjes: modules
+// zijn versleepbaar, dus een vast label zou al snel boven het verkeerde staan.
+const NA_GROEP = 34;
 const MARGE = 60;
 const BOVEN = 22;
 const MIN_MIDDEN = 300;
@@ -40,7 +45,13 @@ export function Patchbay({
   zetPlek: (sleutel: string, plek: { x: number; y: number }) => void;
 }) {
   const vlak = useRef<HTMLDivElement>(null);
+  const tekenvlak = useRef<HTMLDivElement>(null);
   const [breedte, setBreedte] = useState(1200);
+  const [boven, setBoven] = useState<number | null>(null);
+  // Een kabel in de maak: van welke poort, en waar de muis nu is.
+  const [trek, setTrek] = useState<{ van: number; ingang: boolean; x: number; y: number } | null>(
+    null,
+  );
 
   useLayoutEffect(() => {
     const el = vlak.current;
@@ -51,23 +62,20 @@ export function Patchbay({
     return () => ro.disconnect();
   }, []);
 
-  // De beginindeling: twee kolommen, kopjes erboven, modules eronder.
-  const { begin, kopjes } = useMemo(() => {
+  // De beginindeling: twee kolommen, per soort onder elkaar.
+  const begin = useMemo(() => {
     const rechtsX = Math.max(MARGE + BREEDTE + MIN_MIDDEN, breedte - MARGE - BREEDTE);
     const y = { links: BOVEN, rechts: BOVEN };
     const begin: Plekken = {};
-    const kopjes: { titel: string; x: number; y: number }[] = [];
     for (const g of indeling.groepen) {
       const x = g.kant === "links" ? MARGE : rechtsX;
-      kopjes.push({ titel: g.titel, x, y: y[g.kant] });
-      y[g.kant] += KOPJE;
       for (const m of g.modules) {
         begin[m.sleutel] = { x, y: y[g.kant] };
         y[g.kant] += hoogte(m) + TUSSEN;
       }
       y[g.kant] += NA_GROEP - TUSSEN;
     }
-    return { begin, kopjes };
+    return begin;
   }, [indeling, breedte]);
 
   const modules = indeling.groepen.flatMap((g) => g.modules);
@@ -85,34 +93,85 @@ export function Patchbay({
   const onderkant = Math.max(
     400,
     ...modules.map((m) => plek(m).y + hoogte(m) + 40),
-    ...kopjes.map((k) => k.y + 40),
   );
   const rechterkant = Math.max(breedte, ...modules.map((m) => plek(m).x + BREEDTE + MARGE));
 
+  const binnen = (e: { clientX: number; clientY: number }) => {
+    const r = tekenvlak.current!.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+  const pad = (a: { x: number; y: number }, b: { x: number; y: number }) => {
+    const d = Math.max(60, Math.abs(b.x - a.x) / 2);
+    return `M${a.x} ${a.y} C ${a.x + d} ${a.y}, ${b.x - d} ${b.y}, ${b.x} ${b.y}`;
+  };
+
+  const pak = (e: React.PointerEvent, van: number, ingang: boolean) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    tekenvlak.current!.setPointerCapture(e.pointerId);
+    setTrek({ van, ingang, ...binnen(e) });
+  };
+  const los = (e: React.PointerEvent) => {
+    if (!trek) return;
+    setTrek(null);
+    const doel = document
+      .elementFromPoint(e.clientX, e.clientY)
+      ?.closest<HTMLElement>("[data-poort]");
+    if (!doel) return;
+    const naar = Number(doel.dataset.poort);
+    if ((doel.dataset.ingang === "true") === trek.ingang) return;
+    const [uit, ingang] = trek.ingang ? [naar, trek.van] : [trek.van, naar];
+    if (indeling.kabels.some((k) => k.uit === uit && k.in === ingang)) return;
+    verbind(uit, ingang);
+  };
+
   return (
     <div className="patchbay" ref={vlak}>
-      <div className="vlak" style={{ height: onderkant, width: rechterkant }}>
-        <svg className="kabels" width={rechterkant} height={onderkant} aria-hidden="true">
+      <div
+        className={`vlak${trek ? " trekt" : ""}`}
+        ref={tekenvlak}
+        style={{ height: onderkant, width: rechterkant }}
+        onPointerMove={(e) => trek && setTrek({ ...trek, ...binnen(e) })}
+        onPointerUp={los}
+        onPointerCancel={() => setTrek(null)}
+      >
+        <svg className="kabels" width={rechterkant} height={onderkant}>
           {indeling.kabels.map((k) => {
             const a = stippen.get(k.uit);
             const b = stippen.get(k.in);
             if (!a || !b) return null;
-            const d = Math.max(60, Math.abs(b.x - a.x) / 2);
+            const d = pad(a, b);
             return (
-              <path
-                key={k.id}
-                d={`M${a.x} ${a.y} C ${a.x + d} ${a.y}, ${b.x - d} ${b.y}, ${b.x} ${b.y}`}
-              />
+              <g key={k.id} className={boven === k.id ? "boven" : undefined}>
+                <path d={d} />
+                <path
+                  className="raak"
+                  d={d}
+                  onPointerEnter={() => setBoven(k.id)}
+                  onPointerLeave={() => setBoven((b) => (b === k.id ? null : b))}
+                  onClick={() => {
+                    setBoven(null);
+                    ontkoppel([k.id]);
+                  }}
+                >
+                  <title>Click to disconnect</title>
+                </path>
+              </g>
             );
           })}
+          {trek && stippen.get(trek.van) && (
+            <path
+              className="nieuw"
+              d={
+                trek.ingang
+                  ? pad({ x: trek.x, y: trek.y }, stippen.get(trek.van)!)
+                  : pad(stippen.get(trek.van)!, { x: trek.x, y: trek.y })
+              }
+            />
+          )}
         </svg>
-        {kopjes.map((k) => (
-          <div key={k.titel} className="kopje" style={{ left: k.x, top: k.y }}>
-            {k.titel}
-          </div>
-        ))}
         {modules.map((m) => (
-          <ModuleKaart key={m.sleutel} m={m} plek={plek(m)} zetPlek={zetPlek} />
+          <ModuleKaart key={m.sleutel} m={m} plek={plek(m)} zetPlek={zetPlek} pak={pak} />
         ))}
       </div>
     </div>
@@ -123,10 +182,12 @@ function ModuleKaart({
   m,
   plek,
   zetPlek,
+  pak,
 }: {
   m: Module;
   plek: { x: number; y: number };
   zetPlek: (sleutel: string, plek: { x: number; y: number }) => void;
+  pak: (e: React.PointerEvent, poort: number, ingang: boolean) => void;
 }) {
   const sleep = useRef<{ dx: number; dy: number } | null>(null);
   const [sleept, setSleept] = useState(false);
@@ -169,7 +230,12 @@ function ModuleKaart({
         {m.poorten.map((p) => (
           <li key={p.id} className={m.kant}>
             {p.label}
-            <span className={`stip${p.verbonden ? " vol" : ""}`} />
+            <span
+              className={`stip${p.verbonden ? " vol" : ""}`}
+              data-poort={p.id}
+              data-ingang={m.kant === "rechts"}
+              onPointerDown={(e) => pak(e, p.id, m.kant === "rechts")}
+            />
           </li>
         ))}
       </ul>
