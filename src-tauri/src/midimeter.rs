@@ -129,14 +129,9 @@ impl MidiMeter {
 
     /// Maakt de poorten en links gelijk aan `bronnen` (de ids van alle
     /// MIDI-uitgangen). `eigen` zijn de poorten van onze node zoals het
-    /// register ze kent: `in_<bron>` → poort-id, nodig om te kunnen linken.
-    pub fn stem_af(
-        &mut self,
-        core: &pw::core::CoreRc,
-        bronnen: &[u32],
-        knoop: Option<u32>,
-        eigen: &BTreeMap<String, u32>,
-    ) {
+    /// register ze kent: (node, `in_<bron>`) → poort-id, nodig om te linken.
+    pub fn stem_af(&mut self, core: &pw::core::CoreRc, bronnen: &[u32], eigen: &BTreeMap<(u32, String), u32>) {
+        let knoop = self.knoop_id();
         let mut b = self.binnen.borrow_mut();
         // Weg wat weg is.
         b.poorten.retain(|p| {
@@ -179,7 +174,7 @@ impl MidiMeter {
             if self.links.contains_key(&bron) {
                 continue;
             }
-            let (Some(knoop), Some(poort)) = (knoop, eigen.get(&format!("in_{bron}"))) else {
+            let (Some(knoop), Some(poort)) = (knoop, knoop.and_then(|k| eigen.get(&(k, format!("in_{bron}"))))) else {
                 continue;
             };
             let props = pw::properties::properties! {
@@ -191,6 +186,14 @@ impl MidiMeter {
                 self.links.insert(bron, link);
             }
         }
+    }
+
+    /// Het node-id van de meter. Niet de naam: een tweede CachyPatch (een
+    /// voorbeeld naast de app) heeft een node die net zo heet.
+    pub fn knoop_id(&self) -> Option<u32> {
+        // SAFETY: het filter leeft.
+        let id = unsafe { pw_sys::pw_filter_get_node_id(self.filter) };
+        (id != u32::MAX).then_some(id)
     }
 
     /// Wat er sinds de vorige keer binnenkwam, en weer bij nul beginnen.

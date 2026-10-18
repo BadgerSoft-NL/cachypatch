@@ -42,6 +42,11 @@ fn zet_transport(g: State<Graaf>, opties: Opties) {
 }
 
 #[tauri::command]
+fn zet_bus(g: State<Graaf>, kanalen: usize, gain: Vec<f32>) {
+    g.doe(Opdracht::ZetBus { kanalen, gain });
+}
+
+#[tauri::command]
 fn start_opname(g: State<Graaf>) {
     g.doe(Opdracht::Start);
 }
@@ -90,6 +95,7 @@ pub fn run() {
             zet_volume,
             zet_mute,
             zet_transport,
+            zet_bus,
             start_opname,
             stop_opname,
         ])
