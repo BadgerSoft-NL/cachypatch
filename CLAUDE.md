@@ -28,6 +28,14 @@ Concept en ontwerp staan in Nokta (`CachyPatch.nokta`, notities **Concept** en
   Wijzigen gaat via `Opdracht`: link leggen (`object.linger`, blijft na
   sluiten) of weghalen, `target.object` zetten/wissen, volume, mute. Geen
   beleid.
+- `src-tauri/src/meter.rs` — per audio-node een passieve capture-stream
+  (`target.object`, bij sinks `stream.capture.sink`) die pieken per kanaal
+  verzamelt. Event `pieken`, 25×/s, kanalen in `port.id`-volgorde.
+- `src-tauri/src/midimeter.rs` — één `pw_filter`-node met per MIDI-uitgang een
+  ingang en een eigen link (zonder linger). Telt events, kanalen, soorten en
+  het laatste muzikale event. Event `midi`. Raw `pw_sys`, zoals miau-core.
+- Eigen nodes heten `cachypatch-meter-…` en blijven met hun poorten en links
+  buiten de momentopname.
 - `src/indeling.ts` — van graph naar modules: links wat levert, rechts wat
   ontvangt, een node met beide wordt twee modules. Monitors en Midi Through
   verborgen. De Midi-Bridge is één node met alle ALSA-MIDI erin; die wordt per
@@ -45,6 +53,12 @@ Concept en ontwerp staan in Nokta (`CachyPatch.nokta`, notities **Concept** en
   dat ernaar wees wissen.
 - `src/Mixer.tsx` — de strips; fader is de faderwet van CachyMix. Mute van een
   paar (geen hele node) gaat via volume 0. Verborgen strips in `localStorage`.
+- `src/meters.ts` — één animatielus zet de meterbalkjes direct in de DOM
+  (−60…0 dBFS, val 24 dB/s, piek 1 s), zodat React niet 25×/s hertekent.
+- `src/midi.ts`, `src/MidiMeter.tsx` — MIDI-activiteit met 150 ms nagloei; een
+  bestemming toont de samengevoegde activiteit van wat erheen gaat.
+- `src/MidiMixer.tsx` — edit-mix per MIDI-poort; aan/uit = link leggen/weghalen.
+  "Disconnect all" in plaats van "Back to auto".
 - Node-ids zijn per sessie; herkennen via `node.name`, `port.name`, serials.
 
 `pipewire` 0.10, dezelfde versie als miau-core (`~/code/miau-core`). Die kan
@@ -63,6 +77,8 @@ npm run tauri dev                    # de hele app
 npm run tauri build -- --no-bundle   # src-tauri/target/release/cachypatch
 cargo run --example graaf            # vanuit src-tauri/: de graph als JSON, schrijft niets
 cargo run --example proef -- <stream> <sink>   # probeert alle opdrachten op een stream
+cargo run --example meters           # drie seconden pieken per node
+cargo run --example midi             # drie seconden MIDI-activiteit per poort
 ```
 
 Zonder Tauri bootst `api.ts` WirePlumber na, zodat de mixer in de browser te
@@ -82,10 +98,13 @@ naar `src-tauri/target/echt.json` en open
 - Stream-naar-stream via `target.object` werkt (recorder volgt speler).
 - Een doel wordt niet per app onthouden (`~/.local/state/wireplumber`).
 - MIDI komt hier als `8 bit raw midi`, niet als UMP.
+- WirePlumber linkt een MIDI-stream nergens heen (`pw-midiplay`: "no target
+  node available", ook met de Midi-Bridge als doel).
+- Een passieve meter houdt een gesuspende sink (HDMI) niet wakker.
 
 Zelf proberen zonder je eigen audio te raken: `pw-play --volume 0` op een
 stille WAV en `cargo run --example proef -- <stream> <sink>`.
 
-## Nog te verifiëren
-
-- Legt WirePlumber echt geen MIDI-links?
+MIDI testen zonder je apparaten: `target/debug/examples/midi_out` uit
+miau-core geeft een arpeggio op een eigen poort; `cargo run --example midi`
+toont wat de meter ziet.

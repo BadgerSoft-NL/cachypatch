@@ -17,16 +17,19 @@ Early. What works now:
   `target.object`, like pavucontrol; extra routes become links. Patches the
   mixer can't show as on/off are marked *custom* and left alone. **Back to
   auto** removes every manual route and hands control back to WirePlumber.
-  Faders set the stream's own volume.
+  Faders set the stream's own volume; level meters show what each source and
+  destination carries.
+- **MIDI mixer** in the same style, with a MIDI meter per port instead of a
+  fader: activity LED, events per second, the sixteen channels, message types
+  (note, CC, pitch bend, clock) and the last event.
 - **Audio and MIDI patchbays**, ordered: sources on the left, destinations on
-  the right. Drag between dots to connect, click a cable to disconnect. Modules
+  the right, with mini level meters and per-port MIDI activity. Drag between dots to connect, click a cable to disconnect. Modules
   can be dragged; **Rearrange** puts them back.
 - Live view of the PipeWire graph, reconnecting when the server restarts.
 - ALSA MIDI devices and apps are split out of the Midi-Bridge, one module each.
 - Monitor ports and Midi Through are hidden.
 
-Planned, per the design: level and MIDI activity meters, a MIDI mixer, and a
-recorder (mixdown and multitrack WAV, Standard MIDI File) with internal or
+Planned, per the design: a recorder (mixdown and multitrack WAV, Standard MIDI File) with internal or
 external MIDI clock.
 
 ## Building

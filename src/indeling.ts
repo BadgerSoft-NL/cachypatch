@@ -28,6 +28,7 @@ export interface PoortRij {
 }
 
 export interface Module {
+  soort: Soort;
   /** Stabiel over herstarts heen: hierop onthoudt de patchbay een versleepte plek. */
   sleutel: string;
   kant: Kant;
@@ -104,7 +105,7 @@ export function deelIn(g: Graaf, soort: Soort): Indeling {
     // De meter telt de kanalen in poortvolgorde, net als graaf.rs.
     modules.push({
       groep,
-      module: { ...m, poorten: rijen, knoop, meter: meter ? balkjes(rijen.length) : [] },
+      module: { ...m, soort, poorten: rijen, knoop, meter: meter ? balkjes(rijen.length) : [] },
     });
   };
 
@@ -152,7 +153,7 @@ export function deelIn(g: Graaf, soort: Soort): Indeling {
   };
 }
 
-type Voeg = (groep: string, m: Omit<Module, "poorten" | "knoop" | "meter">, poorten: Poort[], meter?: boolean) => void;
+type Voeg = (groep: string, m: Omit<Module, "poorten" | "knoop" | "meter" | "soort">, poorten: Poort[], meter?: boolean) => void;
 
 function audioModules(g: Graaf, k: Knoop, poorten: Poort[], voeg: Voeg, verborgen: Set<string>) {
   const klasse = k.klasse ?? "";
@@ -229,35 +230,57 @@ function audioModules(g: Graaf, k: Knoop, poorten: Poort[], voeg: Voeg, verborge
   );
 }
 
-function midiModules(k: Knoop, poorten: Poort[], voeg: Voeg, verborgen: Set<string>) {
-  // De Midi-Bridge is één node met alle ALSA-apparaten en -apps erin. Pas
-  // per ALSA-client (port.group) wordt het wat je als ding herkent.
+/** Wat een MIDI-poort voor ding is: een apparaat of een app, met welke naam. */
+export interface MidiDing {
+  titel: string;
+  isApp: boolean;
+  /** Midi Through: standaard verborgen. */
+  doorvoer: boolean;
+  /** Stabiel: node-naam, bij de Midi-Bridge plus het apparaat. */
+  sleutel: string;
+}
+
+/**
+ * De Midi-Bridge is één node met alle ALSA-apparaten en -apps erin. Pas per
+ * ALSA-client (`port.group`) wordt het wat je als ding herkent; clients onder
+ * 128 zijn van de kernel (hardware), daarboven apps.
+ */
+export function midiDing(k: Knoop, p: Poort): MidiDing {
   const bridge = k.klasse === "Midi/Bridge" && k.naam === "Midi-Bridge";
-  const delen = new Map<string, Poort[]>();
+  if (bridge) {
+    const titel = midiApparaat(p);
+    const client = Number(/client_(\d+)/.exec(p.groep ?? "")?.[1] ?? 0);
+    return {
+      titel,
+      isApp: client >= 128,
+      doorvoer: /^Midi Through/.test(titel),
+      sleutel: `${k.naam}/${titel}`,
+    };
+  }
+  return {
+    titel: k.app ?? k.beschrijving ?? k.naam,
+    isApp: k.klasse !== "Midi/Bridge",
+    doorvoer: false,
+    sleutel: k.naam,
+  };
+}
+
+function midiModules(k: Knoop, poorten: Poort[], voeg: Voeg, verborgen: Set<string>) {
+  const delen = new Map<string, { ding: MidiDing; ps: Poort[] }>();
   for (const p of poorten) {
-    const deel = bridge ? (p.groep ?? p.naam) : "";
-    if (!delen.has(deel)) delen.set(deel, []);
-    delen.get(deel)!.push(p);
+    const ding = midiDing(k, p);
+    if (!delen.has(ding.sleutel)) delen.set(ding.sleutel, { ding, ps: [] });
+    delen.get(ding.sleutel)!.ps.push(p);
   }
 
-  for (const [deel, ps] of delen) {
-    let titel: string;
-    let isApp: boolean;
-    if (bridge) {
-      titel = midiApparaat(ps[0]);
-      if (/^Midi Through/.test(titel)) {
-        verborgen.add("Midi Through");
-        continue;
-      }
-      // ALSA-clients onder 128 zijn van de kernel (hardware), daarboven apps.
-      const client = Number(/client_(\d+)/.exec(deel)?.[1] ?? 0);
-      isApp = client >= 128;
-    } else {
-      titel = k.app ?? k.beschrijving ?? k.naam;
-      isApp = k.klasse !== "Midi/Bridge";
+  for (const { ding, ps } of delen.values()) {
+    const { titel, isApp, sleutel } = ding;
+    if (ding.doorvoer) {
+      verborgen.add("Midi Through");
+      continue;
     }
-    const sleutel = `${bridge ? `${k.naam}/${titel}` : k.naam}`;
     const icoon: Icoon = isApp ? (/synth|surge|vital/i.test(titel) ? "golf" : "noot") : "toetsen";
+    const bridge = sleutel !== k.naam;
     const onder = isApp ? "app" : bridge ? "ALSA MIDI" : "device";
     voeg(
       isApp ? "Apps · out" : "Devices · out",
