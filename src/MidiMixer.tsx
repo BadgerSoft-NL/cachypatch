@@ -68,8 +68,12 @@ export function MidiMixer({
   verborgen,
   verberg,
   opnemen,
+  midiGewapend,
+  zetMidiGewapend,
 }: {
   opnemen: boolean;
+  midiGewapend: boolean;
+  zetMidiGewapend: (aan: boolean) => void;
   model: MidiMixerModel;
   bewerkt: MidiStrip | null;
   kiesBewerkt: (sleutel: string) => void;
@@ -114,7 +118,7 @@ export function MidiMixer({
           {model.bestemmingen.filter(zichtbaar).map((d) => {
             const gekozen = bewerkt?.sleutel === d.sleutel;
             const van = model.bronnen.filter((b) => model.route(b, d));
-            const neemtOp = opnemen && d.bus;
+            const neemtOp = opnemen && d.bus && midiGewapend;
             return (
               <Kaart
                 key={d.sleutel}
@@ -132,6 +136,21 @@ export function MidiMixer({
                   {van.length === 1 ? "1 source" : `${van.length} sources`}
                 </div>
                 <MidiBlok poorten={van.map((b) => b.poort.id)} bestemming />
+                {d.bus && (
+                  <div className="knoppen">
+                    <button
+                      className={"knop knop-rec" + (midiGewapend ? " aan" : "")}
+                      aria-pressed={midiGewapend}
+                      title={midiGewapend ? "Armed: recorded on Record" : "Arm for recording"}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        zetMidiGewapend(!midiGewapend);
+                      }}
+                    >
+                      R
+                    </button>
+                  </div>
+                )}
               </Kaart>
             );
           })}

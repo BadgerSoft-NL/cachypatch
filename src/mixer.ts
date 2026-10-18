@@ -18,6 +18,15 @@ import {
   type Poort,
 } from "./api";
 import { apparaatTitel, appNaam, poortLabel } from "./indeling";
+import type { BusDef } from "./bussen";
+
+// Hoe de Rec bus in bussen is ingedeeld. Staat hier en niet als argument,
+// omdat ook ongedaan maken (handelingen.ts) de mixer opnieuw opbouwt.
+let busDefs: BusDef[] = [];
+
+export function zetBusDefs(d: BusDef[]) {
+  busDefs = d;
+}
 
 export type Rij = "apps" | "hardware" | "bestemmingen";
 
@@ -33,6 +42,8 @@ export interface Strip {
   kanalen: number[];
   /** De hele node, of zijn eerste paar: daar kan `target.object` heen. */
   doelbaar: boolean;
+  /** Een rec-bus: dan gaan fader en mute over de bus, niet over de node. */
+  bus?: BusDef;
   stil: boolean;
 }
 
@@ -90,7 +101,14 @@ export function bouwMixer(g: Graaf): Mixer {
     const stil = k.stand !== "running";
 
     if (isBus(k)) {
-      bestemmingen.push(strip(k, ins, ins.map((_, i) => i), "bestemmingen", "Rec bus", "CachyPatch", false, false));
+      for (const d of busDefs) {
+        const ps = d.kanalen.map((c) => ins.find((p) => p.naam === `rec_${c + 1}`));
+        if (ps.some((p) => !p)) continue;
+        const s = strip(k, ps as Poort[], d.kanalen, "bestemmingen", d.naam, "CachyPatch", false, false);
+        s.bus = d;
+        s.sleutel = `bus|${d.sleutel}`;
+        bestemmingen.push(s);
+      }
       continue;
     }
     if (klasse.startsWith("Stream/")) {
@@ -120,6 +138,7 @@ export function bouwMixer(g: Graaf): Mixer {
     const soort = (s: Strip) => (isBus(s.knoop) ? 1 : s.knoop.klasse?.startsWith("Stream/") ? 2 : 0);
     const appA = soort(a);
     const appB = soort(b);
+    if (appA === 1 && appB === 1) return a.bus!.kanalen[0] - b.bus!.kanalen[0];
     return appA - appB || (appA ? opNaam(a, b) : hw(a, b));
   });
   uniek([...apps, ...hardware, ...bestemmingen]);

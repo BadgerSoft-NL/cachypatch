@@ -1,16 +1,16 @@
 //! Opnemen: de Rec bus, de schrijfdraad en de klok.
 //!
-//! De **Rec bus** is een eigen, zichtbare node met twee audio-ingangen (FL,
-//! FR) en een MIDI-ingang. Je routeert er bronnen heen zoals naar elke andere
-//! bestemming; PipeWire telt alles wat op één ingang binnenkomt op, dus wat de
-//! bus hoort is de mixdown. `node.autoconnect = false`: WirePlumber hangt er
+//! De **Rec bus** is een eigen, zichtbare node met een instelbaar aantal
+//! audio-ingangen (`rec_1`, `rec_2`, …) en een MIDI-ingang. De schil deelt de
+//! kanalen in bussen in: een stereopaar of twee mono's, zoals de uitgangen in
+//! CachyMix. Je routeert er bronnen heen zoals naar elke andere bestemming;
+//! PipeWire telt alles op één ingang op. Elke gewapende bus wordt één WAV,
+//! en omdat alle bussen uit één node en één process-ronde komen, liggen ze
+//! sample-precies gelijk. `node.autoconnect = false`: WirePlumber hangt er
 //! anders de standaard-microfoon aan.
 //!
-//! **Multitrack** komt niet van de bus (daar is alles al opgeteld) maar van de
-//! meter-streams in [`crate::meter`], die elk het geluid van één node
-//! binnenkrijgen. **MIDI** komt per bronpoort uit [`crate::midimeter`]. De bus
-//! zelf beslist alleen *wat* er meedoet: wat er bij het starten naar de bus
-//! gerouteerd is.
+//! **MIDI** komt per bronpoort uit [`crate::midimeter`]: wat bij het starten
+//! naar de MIDI-ingang van de bus gerouteerd is, krijgt een eigen spoor.
 //!
 //! Alle process-callbacks draaien op de loop van de graph-draad (geen
 //! `RT_PROCESS`). Ze schrijven nooit naar schijf: blokken gaan over een kanaal
@@ -47,10 +47,8 @@ pub type Opnemer = Rc<RefCell<Option<Actief>>>;
 pub struct Actief {
     pub tx: mpsc::Sender<Bericht>,
     pub t0: Instant,
-    /// Spoor van de mixdown, als die aan staat.
-    pub mixdown: Option<usize>,
-    /// Per node: (spoor, welke kanalen van de meter).
-    pub audio: BTreeMap<u32, Vec<(usize, Vec<usize>)>>,
+    /// Per gewapende bus: (spoor, welke kanalen van de Rec bus).
+    pub bussen: Vec<(usize, Vec<usize>)>,
     /// Per MIDI-bronpoort: spoornummer in het MIDI-bestand.
     pub midi: BTreeMap<u32, usize>,
     /// (spoor, seconden sinds t0, bytes).
@@ -341,23 +339,58 @@ impl Klok {
 
 const DSP_AUDIO: &str = "32 bit float mono audio";
 const DSP_MIDI: &str = "8 bit raw midi";
+/// Meer dan genoeg; elke bus is één of twee kanalen.
+pub const MAX_KANALEN: usize = 64;
 
 struct BusBinnen {
-    links: *mut c_void,
-    rechts: *mut c_void,
+    /// De audio-ingangen `rec_1`, `rec_2`, …, in volgorde.
+    kanalen: Vec<*mut c_void>,
     midi: *mut c_void,
+    /// Lineair, per kanaal: de fader van de bus, 0 als hij gemute is.
+    gain: Vec<f32>,
+    /// Hoogste piek per kanaal sinds de vorige oogst, na de gain.
+    pieken: Vec<f32>,
     opnemer: Opnemer,
 }
 
+/// De Rec bus: één node met een instelbaar aantal audio-ingangen en één
+/// MIDI-ingang. Welke kanalen samen een (stereo)bus vormen, bepaalt de schil;
+/// hier is het alleen een rij kanalen met elk een gain en een meter.
 pub struct Bus {
     filter: *mut pw_sys::pw_filter,
     _haak: Box<spa::sys::spa_hook>,
     _events: Box<pw_sys::pw_filter_events>,
-    _binnen: Box<RefCell<BusBinnen>>,
+    binnen: Box<RefCell<BusBinnen>>,
+}
+
+/// Voegt één ingang toe aan het filter.
+///
+/// # Safety
+/// `filter` moet leven; process mag niet tegelijk lopen (zelfde draad).
+unsafe fn bus_poort(filter: *mut pw_sys::pw_filter, dsp: &str, naam: &str, kanaal: Option<&str>) -> *mut c_void {
+    let mut props = pw::properties::properties! {
+        *pw::keys::FORMAT_DSP => dsp,
+        *pw::keys::PORT_NAME => naam,
+    };
+    if let Some(k) = kanaal {
+        props.insert(*pw::keys::AUDIO_CHANNEL, k);
+    }
+    // SAFETY: zie boven; de props gaan naar PipeWire.
+    unsafe {
+        pw_sys::pw_filter_add_port(
+            filter,
+            spa::utils::Direction::Input.as_raw(),
+            pw_sys::pw_filter_port_flags_PW_FILTER_PORT_FLAG_MAP_BUFFERS,
+            std::mem::size_of::<usize>(),
+            props.into_raw(),
+            ptr::null_mut(),
+            0,
+        )
+    }
 }
 
 impl Bus {
-    pub fn maak(core: &pw::core::CoreRc, opnemer: Opnemer) -> Option<Self> {
+    pub fn maak(core: &pw::core::CoreRc, opnemer: Opnemer, kanalen: usize) -> Option<Self> {
         let naam = CString::new(BUS_NAAM).ok()?;
         let props = pw::properties::properties! {
             *pw::keys::MEDIA_TYPE => "Audio",
@@ -376,31 +409,12 @@ impl Bus {
         if filter.is_null() {
             return None;
         }
-        let poort = |dsp: &str, naam: &str, kanaal: Option<&str>| {
-            let mut props = pw::properties::properties! {
-                *pw::keys::FORMAT_DSP => dsp,
-                *pw::keys::PORT_NAME => naam,
-            };
-            if let Some(k) = kanaal {
-                props.insert(*pw::keys::AUDIO_CHANNEL, k);
-            }
-            // SAFETY: filter leeft en is nog niet verbonden.
-            unsafe {
-                pw_sys::pw_filter_add_port(
-                    filter,
-                    spa::utils::Direction::Input.as_raw(),
-                    pw_sys::pw_filter_port_flags_PW_FILTER_PORT_FLAG_MAP_BUFFERS,
-                    std::mem::size_of::<usize>(),
-                    props.into_raw(),
-                    ptr::null_mut(),
-                    0,
-                )
-            }
-        };
         let binnen = Box::new(RefCell::new(BusBinnen {
-            links: poort(DSP_AUDIO, "input_FL", Some("FL")),
-            rechts: poort(DSP_AUDIO, "input_FR", Some("FR")),
-            midi: poort(DSP_MIDI, "midi_in", None),
+            kanalen: Vec::new(),
+            // SAFETY: filter leeft, nog niet verbonden.
+            midi: unsafe { bus_poort(filter, DSP_MIDI, "midi_in", None) },
+            gain: Vec::new(),
+            pieken: Vec::new(),
             opnemer,
         }));
         let events = Box::new(pw_sys::pw_filter_events {
@@ -424,7 +438,56 @@ impl Bus {
                 return None;
             }
         }
-        Some(Self { filter, _haak: haak, _events: events, _binnen: binnen })
+        let bus = Self { filter, _haak: haak, _events: events, binnen };
+        bus.zet_kanalen(kanalen);
+        Some(bus)
+    }
+
+    /// Zoveel audio-ingangen, door aan het eind toe te voegen of weg te halen.
+    /// Wat aan een weggehaalde ingang hing, verdwijnt met hem.
+    pub fn zet_kanalen(&self, n: usize) {
+        let n = n.clamp(1, MAX_KANALEN);
+        let mut b = self.binnen.borrow_mut();
+        while b.kanalen.len() > n {
+            if let Some(p) = b.kanalen.pop() {
+                // SAFETY: een poort van dit filter; process draait niet nu.
+                unsafe { pw_sys::pw_filter_remove_port(p) };
+            }
+        }
+        while b.kanalen.len() < n {
+            let i = b.kanalen.len();
+            // SAFETY: filter leeft.
+            let p = unsafe { bus_poort(self.filter, DSP_AUDIO, &format!("rec_{}", i + 1), Some(&format!("AUX{i}"))) };
+            if p.is_null() {
+                break;
+            }
+            b.kanalen.push(p);
+        }
+        let k = b.kanalen.len();
+        b.gain.resize(k, 1.0);
+        b.pieken.resize(k, 0.0);
+    }
+
+    pub fn zet_gain(&self, gain: &[f32]) {
+        let mut b = self.binnen.borrow_mut();
+        for (i, g) in b.gain.iter_mut().enumerate() {
+            *g = gain.get(i).copied().unwrap_or(1.0).clamp(0.0, 4.0);
+        }
+    }
+
+    /// Het node-id van de bus, zodra de server hem kent. Niet de naam: een
+    /// tweede CachyPatch (een voorbeeld naast de app) heeft er ook een.
+    pub fn knoop_id(&self) -> Option<u32> {
+        // SAFETY: het filter leeft.
+        let id = unsafe { pw_sys::pw_filter_get_node_id(self.filter) };
+        (id != u32::MAX).then_some(id)
+    }
+
+    pub fn oogst(&self) -> Vec<f32> {
+        let mut b = self.binnen.borrow_mut();
+        let uit = b.pieken.clone();
+        b.pieken.iter_mut().for_each(|p| *p = 0.0);
+        uit
     }
 }
 
@@ -441,12 +504,12 @@ impl Drop for Bus {
 unsafe extern "C" fn bus_process(data: *mut c_void, positie: *mut spa::sys::spa_io_position) {
     // SAFETY: `data` is de RefCell<BusBinnen> uit `maak`.
     let binnen = unsafe { &*data.cast::<RefCell<BusBinnen>>() };
-    let Ok(b) = binnen.try_borrow() else { return };
+    let Ok(mut b) = binnen.try_borrow_mut() else { return };
     let n = if positie.is_null() {
         0
     } else {
         // SAFETY: PipeWire geeft een geldige positie mee.
-        unsafe { (*positie).clock.duration as u32 }
+        unsafe { (*positie).clock.duration as usize }
     };
     // De MIDI-poort leegmaken; wat erop binnenkomt neemt de MIDI-meter al per
     // bron op.
@@ -459,32 +522,44 @@ unsafe extern "C" fn bus_process(data: *mut c_void, positie: *mut spa::sys::spa_
             }
         }
     }
-    let Ok(op) = b.opnemer.try_borrow() else { return };
-    let Some(a) = op.as_ref() else { return };
-    let Some(spoor) = a.mixdown else { return };
-    if n == 0 || b.links.is_null() || b.rechts.is_null() {
+    if n == 0 {
         return;
     }
-    // SAFETY: get_dsp_buffer geeft n samples of null.
-    let (l, r) = unsafe {
-        (
-            pw_sys::pw_filter_get_dsp_buffer(b.links, n).cast::<f32>(),
-            pw_sys::pw_filter_get_dsp_buffer(b.rechts, n).cast::<f32>(),
-        )
-    };
-    let mut uit = Vec::with_capacity(n as usize * 2);
-    for i in 0..n as usize {
-        // SAFETY: binnen de n samples die PipeWire gaf; null = stilte.
-        let (x, y) = unsafe {
-            (
-                if l.is_null() { 0.0 } else { *l.add(i) },
-                if r.is_null() { 0.0 } else { *r.add(i) },
-            )
-        };
-        uit.push(x);
-        uit.push(y);
+    let BusBinnen { kanalen, gain, pieken, opnemer, .. } = &mut *b;
+    let op = opnemer.try_borrow().ok();
+    let actief = op.as_ref().and_then(|o| o.as_ref());
+    // Elk kanaal: gain erop, piek bijhouden, en bewaren als er opgenomen wordt.
+    let mut blok: Vec<Vec<f32>> = Vec::new();
+    for (i, &poort) in kanalen.iter().enumerate() {
+        // SAFETY: get_dsp_buffer geeft n samples of null (= stilte).
+        let p = unsafe { pw_sys::pw_filter_get_dsp_buffer(poort, n as u32).cast::<f32>() };
+        let g = gain[i];
+        let mut piek = pieken[i];
+        let mut kanaal = Vec::new();
+        if actief.is_some() {
+            kanaal.reserve(n);
+        }
+        for j in 0..n {
+            // SAFETY: binnen de n samples die PipeWire gaf.
+            let x = if p.is_null() { 0.0 } else { unsafe { *p.add(j) } } * g;
+            piek = piek.max(x.abs());
+            if actief.is_some() {
+                kanaal.push(x);
+            }
+        }
+        pieken[i] = piek;
+        blok.push(kanaal);
     }
-    let _ = a.tx.send(Bericht::Audio(spoor, uit));
+    let Some(a) = actief else { return };
+    for (spoor, kan) in &a.bussen {
+        let mut uit = Vec::with_capacity(n * kan.len());
+        for j in 0..n {
+            for &c in kan {
+                uit.push(blok.get(c).and_then(|k| k.get(j)).copied().unwrap_or(0.0));
+            }
+        }
+        let _ = a.tx.send(Bericht::Audio(*spoor, uit));
+    }
 }
 
 #[cfg(test)]

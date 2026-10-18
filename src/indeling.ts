@@ -319,6 +319,9 @@ export function poortLabel(p: Poort, soort: Soort): string {
     const kaal = p.naam.replace(/ \((capture|playback)\)$/, "");
     return kaal.includes(": ") ? kaal.split(": ").slice(1).join(": ") : kaal;
   }
+  // De ingangen van de Rec bus.
+  const rec = /^rec_(\d+)$/.exec(p.naam);
+  if (rec) return `Rec ${rec[1]}`;
   // Een pro-audio-profiel nummert AUX0…; op de kast staat In 1 / Out 1.
   const aux = /^AUX(\d+)$/.exec(p.kanaal ?? "");
   if (aux) return `${p.ingang ? "Out" : "In"} ${Number(aux[1]) + 1}`;

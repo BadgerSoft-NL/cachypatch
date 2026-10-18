@@ -29,9 +29,11 @@ Early. What works now:
 - ALSA MIDI devices and apps are split out of the Midi-Bridge, one module each.
 - Monitor ports and Midi Through are hidden.
 
-- **Recorder**: route sources to the *Rec bus* like to any other destination.
-  Records a stereo mixdown and/or one WAV per source (32-bit float, all the
-  same length), plus a Standard MIDI File with one track per MIDI source.
+- **Recorder**: *Rec buses* sit among the destinations, stereo or split into
+  two mono buses, and you add more with **+ Bus**. Route sources to them like
+  to any other destination, set their level, and arm them with **R**. Every
+  armed bus becomes one WAV (32-bit float, sample-aligned), plus a Standard
+  MIDI File with one track per MIDI source routed to the bus.
   The clock is internal (120 BPM) or follows an external MIDI Clock, with
   tempo changes written to the file and optional start/stop on MIDI Start.
   Files go to `~/Recordings/YYYY-MM-DD_HHMM/`.

@@ -33,7 +33,7 @@ use pw::types::ObjectType;
 use serde::Serialize;
 
 use crate::meter::{self, Meter};
-use crate::midimeter::{self, Activiteit, MidiMeter};
+use crate::midimeter::{Activiteit, MidiMeter};
 use crate::opname::{self, Actief, Bericht, Bus, Klok, KlokStand, MidiBestand, Opnemer, Spoor};
 
 /// Wat PipeWire in `format.dsp` zet voor MIDI: oude bytes of UMP.
@@ -159,11 +159,19 @@ pub enum Melding<'a> {
     Transport(&'a TransportStand),
 }
 
+/// Eén gewapende bus: een WAV met deze kanalen van de Rec bus.
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct BusOpname {
+    pub naam: String,
+    pub kanalen: Vec<usize>,
+}
+
 /// Wat de opname moet doen als hij start.
 #[derive(Clone, Debug, serde::Deserialize)]
 pub struct Opties {
-    pub mixdown: bool,
-    pub multitrack: bool,
+    /// De gewapende audiobussen.
+    pub bussen: Vec<BusOpname>,
+    /// De MIDI-ingang van de bus is gewapend.
     pub midi: bool,
     /// De MIDI-bronpoort van de externe klok; `None` = intern.
     pub klok: Option<u32>,
@@ -202,6 +210,8 @@ pub enum Opdracht {
     ZetMute { knoop: u32, mute: bool },
     /// Opties voor de volgende opname, en welke klok.
     ZetTransport(Opties),
+    /// Hoeveel kanalen de Rec bus heeft, en hun gain (lineair, 0 = mute).
+    ZetBus { kanalen: usize, gain: Vec<f32> },
     Start,
     Stop,
 }
@@ -288,9 +298,8 @@ struct Staat {
     standaard_bron: Option<String>,
     /// Onze eigen meter-nodes: die horen niet in de graph van de gebruiker.
     eigen: BTreeSet<u32>,
-    /// De MIDI-meter-node en zijn poorten (`in_<bron>` → id), om te linken.
-    midi_knoop: Option<u32>,
-    midi_poorten: BTreeMap<String, u32>,
+    /// De poorten van onze eigen nodes: (node, poortnaam) → id, om te linken.
+    eigen_poorten: BTreeMap<(u32, String), u32>,
     /// Er is iets veranderd sinds de laatste melding.
     vuil: bool,
 }
@@ -328,11 +337,8 @@ impl Staat {
     fn global(&mut self, id: u32, soort: &ObjectType, props: &DictRef) {
         match soort {
             ObjectType::Node => {
-                if let Some(n) = props.get("node.name").filter(|n| n.starts_with(meter::VOORVOEGSEL)) {
+                if props.get("node.name").is_some_and(|n| n.starts_with(meter::VOORVOEGSEL)) {
                     self.eigen.insert(id);
-                    if n == midimeter::NAAM {
-                        self.midi_knoop = Some(id);
-                    }
                     return;
                 }
                 self.knopen.insert(
@@ -359,10 +365,8 @@ impl Staat {
                     return;
                 };
                 if self.eigen.contains(&knoop) {
-                    if Some(knoop) == self.midi_knoop {
-                        if let Some(n) = tekst(props, "port.name") {
-                            self.midi_poorten.insert(n, id);
-                        }
+                    if let Some(n) = tekst(props, "port.name") {
+                        self.eigen_poorten.insert((knoop, n), id);
                     }
                     return;
                 }
@@ -423,10 +427,7 @@ impl Staat {
             | self.clients.remove(&id).is_some()
             | self.doelen.remove(&id).is_some();
         self.eigen.remove(&id);
-        if self.midi_knoop == Some(id) {
-            self.midi_knoop = None;
-        }
-        self.midi_poorten.retain(|_, p| *p != id);
+        self.eigen_poorten.retain(|(k, _), p| *p != id && *k != id);
         self.vuil |= was;
     }
 
@@ -719,7 +720,7 @@ fn sessie(
     let opnemer: Opnemer = Rc::default();
     let klok: Rc<RefCell<Klok>> = Rc::default();
     let transport: Rc<RefCell<Transport>> = Rc::default();
-    let _bus = Bus::maak(&core, Rc::clone(&opnemer));
+    let bus = Rc::new(Bus::maak(&core, Rc::clone(&opnemer), 2));
 
     let ontvanger = rx.attach(mainloop.loop_(), {
         let core = core.clone();
@@ -730,7 +731,14 @@ fn sessie(
         let opnemer = Rc::clone(&opnemer);
         let klok = Rc::clone(&klok);
         let transport = Rc::clone(&transport);
+        let bus = Rc::clone(&bus);
         move |o| match o {
+            Opdracht::ZetBus { kanalen, gain } => {
+                if let Some(b) = bus.as_ref() {
+                    b.zet_kanalen(kanalen);
+                    b.zet_gain(&gain);
+                }
+            }
             Opdracht::ZetTransport(opties) => {
                 let mut k = klok.borrow_mut();
                 if k.bron != opties.klok {
@@ -740,9 +748,12 @@ fn sessie(
                 k.start_stop = opties.start_stop;
                 transport.borrow_mut().opties = Some(opties);
             }
-            Opdracht::Start => {
-                begin(&staat.borrow(), &mut transport.borrow_mut(), &opnemer)
-            }
+            Opdracht::Start => begin(
+                &staat.borrow(),
+                &mut transport.borrow_mut(),
+                &opnemer,
+                bus.as_ref().as_ref().and_then(Bus::knoop_id),
+            ),
             Opdracht::Stop => eindig(&mut transport.borrow_mut(), &opnemer, &klok.borrow()),
             o => uitvoeren(o, &core, &registry, &bindingen.borrow(), &gelegd),
         }
@@ -762,13 +773,17 @@ fn sessie(
         let opnemer = Rc::clone(&opnemer);
         let klok = Rc::clone(&klok);
         let transport = Rc::clone(&transport);
+        let bus = Rc::clone(&bus);
         move |_| {
             // Start of Stop van de externe klok.
             let verzoek = klok.borrow_mut().verzoek.take();
             match verzoek {
-                Some(true) if opnemer.borrow().is_none() => {
-                    begin(&staat.borrow(), &mut transport.borrow_mut(), &opnemer)
-                }
+                Some(true) if opnemer.borrow().is_none() => begin(
+                    &staat.borrow(),
+                    &mut transport.borrow_mut(),
+                    &opnemer,
+                    bus.as_ref().as_ref().and_then(Bus::knoop_id),
+                ),
                 Some(false) if opnemer.borrow().is_some() => {
                     eindig(&mut transport.borrow_mut(), &opnemer, &klok.borrow())
                 }
@@ -795,7 +810,7 @@ fn sessie(
                     .filter(|p| p.soort == Soort::Midi && !p.ingang)
                     .map(|p| p.id)
                     .collect();
-                mm.stem_af(&core, &bronnen, s.midi_knoop, &s.midi_poorten);
+                mm.stem_af(&core, &bronnen, &s.eigen_poorten);
                 let activiteit = mm.oogst();
                 if !activiteit.is_empty() {
                     meld_overig(Melding::Midi(&activiteit));
@@ -812,9 +827,7 @@ fn sessie(
                 m.retain(|id, meter| moet.get(id).is_some_and(|(_, _, k)| *k == meter.kanalen));
                 for (id, (serial, sink, kanalen)) in moet {
                     if let std::collections::btree_map::Entry::Vacant(plek) = m.entry(id) {
-                        if let Some(meter) =
-                            meter::maak(&core, id, serial, sink, kanalen, Rc::clone(&opnemer))
-                        {
+                        if let Some(meter) = meter::maak(&core, id, serial, sink, kanalen) {
                             plek.insert(meter);
                         }
                     }
@@ -823,8 +836,12 @@ fn sessie(
                 drop(s);
             }
             let m = meters.borrow();
-            if !m.is_empty() {
-                let pieken: Pieken = m.iter().map(|(id, meter)| (*id, meter.oogst())).collect();
+            let mut pieken: Pieken = m.iter().map(|(id, meter)| (*id, meter.oogst())).collect();
+            // De Rec bus meet zichzelf, onder zijn eigen node-id.
+            if let Some((b, id)) = bus.as_ref().as_ref().and_then(|b| b.knoop_id().map(|id| (b, id))) {
+                pieken.insert(id, b.oogst());
+            }
+            if !pieken.is_empty() {
                 meld_overig(Melding::Pieken(&pieken));
             }
         }
@@ -866,21 +883,20 @@ impl Transport {
 }
 
 /// Start een opname met wat er nu naar de Rec bus gerouteerd is.
-fn begin(s: &Staat, t: &mut Transport, opnemer: &Opnemer) {
+fn begin(s: &Staat, t: &mut Transport, opnemer: &Opnemer, bus: Option<u32>) {
     if opnemer.borrow().is_some() {
         return;
     }
     t.fout = None;
     let opties = t.opties.clone().unwrap_or(Opties {
-        mixdown: true,
-        multitrack: true,
+        bussen: vec![BusOpname { naam: "Rec 1-2".into(), kanalen: vec![0, 1] }],
         midi: true,
         klok: None,
         start_stop: false,
     });
-    match plan(s, &opties) {
+    match plan(s, &opties, bus) {
         Err(e) => t.fout = Some(e),
-        Ok((sporen, mixdown, audio, midi, midi_namen)) => {
+        Ok((sporen, bussen, midi, midi_namen)) => {
             let map = opname::nieuwe_map();
             let rate = s.force_rate.or(s.rate).unwrap_or(48_000);
             match opname::schrijver(&map, sporen, rate) {
@@ -889,8 +905,7 @@ fn begin(s: &Staat, t: &mut Transport, opnemer: &Opnemer) {
                     *opnemer.borrow_mut() = Some(Actief {
                         tx,
                         t0: std::time::Instant::now(),
-                        mixdown,
-                        audio,
+                        bussen,
                         midi,
                         midi_events: Vec::new(),
                         pulsen: Vec::new(),
@@ -904,58 +919,27 @@ fn begin(s: &Staat, t: &mut Transport, opnemer: &Opnemer) {
     }
 }
 
-type Plan = (Vec<Spoor>, Option<usize>, BTreeMap<u32, Vec<(usize, Vec<usize>)>>, BTreeMap<u32, usize>, Vec<String>);
+type Plan = (Vec<Spoor>, Vec<(usize, Vec<usize>)>, BTreeMap<u32, usize>, Vec<String>);
 
-/// Welke sporen er komen: de mixdown, per bron die naar de bus gaat een
-/// multitrack-spoor, en per MIDI-bron een spoor in het MIDI-bestand.
-fn plan(s: &Staat, o: &Opties) -> Result<Plan, String> {
-    let bus = s
-        .knopen
+/// Welke sporen er komen: per gewapende bus een WAV, en per MIDI-bron die
+/// naar de bus gaat een spoor in het MIDI-bestand.
+fn plan(s: &Staat, o: &Opties, bus: Option<u32>) -> Result<Plan, String> {
+    let bus = s.knopen.get(&bus.ok_or("The Rec bus is not there")?).ok_or("The Rec bus is not there")?;
+    let midi_in: BTreeSet<u32> = s
+        .poorten
         .values()
-        .find(|k| k.naam == opname::BUS_NAAM)
-        .ok_or("The Rec bus is not there")?;
-    let bus_poorten: Vec<&Poort> = s.poorten.values().filter(|p| p.knoop == bus.id).collect();
-    let audio_in: BTreeSet<u32> = bus_poorten.iter().filter(|p| p.soort == Soort::Audio).map(|p| p.id).collect();
-    let midi_in: BTreeSet<u32> = bus_poorten.iter().filter(|p| p.soort == Soort::Midi).map(|p| p.id).collect();
+        .filter(|p| p.knoop == bus.id && p.soort == Soort::Midi)
+        .map(|p| p.id)
+        .collect();
 
     let mut sporen = Vec::new();
-    let mut mixdown = None;
-    if o.mixdown {
-        mixdown = Some(sporen.len());
-        sporen.push(Spoor { naam: "Mixdown".into(), kanalen: 2 });
-    }
-
-    // Multitrack: per bron-node de kanalen die naar de bus gaan, in de
-    // volgorde waarin zijn meter ze levert.
-    let mut audio: BTreeMap<u32, Vec<(usize, Vec<usize>)>> = BTreeMap::new();
-    let mut aantal_audio = 0;
-    if o.multitrack {
-        let meterbaar = s.meterbaar();
-        let mut per_knoop: BTreeMap<u32, BTreeSet<usize>> = BTreeMap::new();
-        for k in s.kabels.values().filter(|k| audio_in.contains(&k.in_poort)) {
-            let Some((_, sink, kanalen)) = meterbaar.get(&k.uit_knoop) else { continue };
-            let Some(p) = s.poorten.get(&k.uit_poort) else { continue };
-            // De monitor van een sink draagt dezelfde kanalen als zijn ingangen.
-            if p.monitor != *sink {
-                continue;
-            }
-            if let Some(i) = kanalen.iter().position(|c| Some(c) == p.kanaal.as_ref()) {
-                per_knoop.entry(k.uit_knoop).or_default().insert(i);
-            }
+    let mut bussen = Vec::new();
+    for b in &o.bussen {
+        if b.kanalen.is_empty() {
+            continue;
         }
-        for (knoop, idx) in per_knoop {
-            let k = &s.knopen[&knoop];
-            let kanalen: Vec<usize> = idx.into_iter().collect();
-            let alle = meterbaar[&knoop].2.len();
-            let mut naam = k.app.clone().or(k.beschrijving.clone()).unwrap_or(k.naam.clone());
-            if kanalen.len() < alle {
-                let nrs: Vec<String> = kanalen.iter().map(|i| (i + 1).to_string()).collect();
-                naam = format!("{naam} {}", nrs.join("-"));
-            }
-            audio.entry(knoop).or_default().push((sporen.len() + aantal_audio, kanalen.clone()));
-            aantal_audio += 1;
-            sporen.push(Spoor { naam: format!("{:02} {naam}", aantal_audio), kanalen: kanalen.len() as u16 });
-        }
+        bussen.push((sporen.len(), b.kanalen.clone()));
+        sporen.push(Spoor { naam: b.naam.clone(), kanalen: b.kanalen.len() as u16 });
     }
 
     // MIDI: per bronpoort die naar de bus gaat.
@@ -984,9 +968,9 @@ fn plan(s: &Staat, o: &Opties) -> Result<Plan, String> {
     }
 
     if sporen.is_empty() && midi.is_empty() {
-        return Err("Nothing to record: route sources to the Rec bus first".into());
+        return Err("Nothing armed: press R on a Rec bus".into());
     }
-    Ok((sporen, mixdown, audio, midi, midi_namen))
+    Ok((sporen, bussen, midi, midi_namen))
 }
 
 /// Stopt de opname: de schrijfdraad maakt de bestanden af.
@@ -1049,7 +1033,7 @@ fn uitvoeren(
             stuur_props(bindingen, knoop, eigenschap);
         }
         // Die handelt de ontvanger in `sessie` zelf af.
-        Opdracht::ZetTransport(_) | Opdracht::Start | Opdracht::Stop => {}
+        Opdracht::ZetTransport(_) | Opdracht::ZetBus { .. } | Opdracht::Start | Opdracht::Stop => {}
     }
 }
 
