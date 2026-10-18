@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { version } from "../package.json";
 import { LEEG, volgGraaf, type Graaf } from "./api";
 import { deelIn } from "./indeling";
 import { Mixer } from "./Mixer";
@@ -88,6 +89,7 @@ export default function App() {
       <header className="kop">
         <div className="merk">
           <span className="naam">CachyPatch</span>
+          <span className="merk-versie">{version}</span>
           <span className="pw">PipeWire</span>
         </div>
         <span className={`status${graaf.verbonden ? "" : " los"}`}>

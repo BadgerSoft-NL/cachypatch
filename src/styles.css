@@ -111,8 +111,15 @@ button:disabled {
   letter-spacing: 0.02em;
 }
 
+.merk-versie {
+  font-size: 11px;
+  color: var(--zacht);
+  font-variant-numeric: tabular-nums;
+}
+
 .merk .pw {
   color: var(--zacht);
+  margin-left: 4px;
 }
 
 .status {
