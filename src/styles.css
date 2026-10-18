@@ -679,3 +679,55 @@ button {
   opacity: 0.4;
   cursor: default;
 }
+
+/* --- Meters --- */
+
+.meters {
+  display: flex;
+  gap: 2px;
+  padding: 9px 0;
+}
+
+.meter {
+  position: relative;
+  width: 4px;
+  height: 100%;
+  background: #0b0c0d;
+  overflow: hidden;
+}
+
+.meter.klein {
+  height: 20px;
+}
+
+.meter-vul {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0;
+  background: var(--groen);
+}
+
+.meter-vul.vol {
+  background: var(--rood);
+}
+
+.meter-piek {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  margin-bottom: -1px;
+  background: #6fe394;
+  opacity: 0;
+}
+
+.mini-meters {
+  display: flex;
+  gap: 2px;
+}
+
+.fader-vak {
+  gap: 10px;
+}

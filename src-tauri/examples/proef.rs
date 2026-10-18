@@ -6,14 +6,16 @@
 use std::sync::mpsc;
 use std::time::Duration;
 
-use cachypatch_lib::graaf::{Graaf, Momentopname, Opdracht};
+use cachypatch_lib::graaf::{Graaf, Melding, Momentopname, Opdracht};
 
 fn main() {
     let mut args = std::env::args().skip(1);
     let (stream, sink) = (args.next().expect("stream"), args.next().expect("sink"));
     let (tx, rx) = mpsc::channel::<Momentopname>();
     let g = Graaf::start(Box::new(move |m| {
-        let _ = tx.send(m.clone());
+        if let Melding::Graaf(m) = m {
+            let _ = tx.send(m.clone());
+        }
     }));
     let wacht = || {
         let mut m = None;

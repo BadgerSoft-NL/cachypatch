@@ -4,6 +4,7 @@
 
 import { useRef, type ReactNode } from "react";
 import { zetMute, zetVolume, type Graaf } from "./api";
+import { MeterBalk } from "./Meter";
 import {
   MAX_DB,
   UIT_DB,
@@ -207,6 +208,11 @@ function Kaart({
       </div>
       {children ?? <div className="route-leeg" />}
       <div className="fader-vak">
+        <div className="meters">
+          {s.kanalen.map((k) => (
+            <MeterBalk key={k} knoop={s.knoop.id} kanalen={[k]} />
+          ))}
+        </div>
         {db === null ? <div className="geen-volume">no volume</div> : <Fader db={db} onChange={zetDb} uit={gemute} />}
       </div>
       <div className="db">{db === null ? "" : toonDb(db)}</div>

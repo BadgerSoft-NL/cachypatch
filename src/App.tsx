@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { LEEG, volgGraaf, type Graaf } from "./api";
 import { deelIn } from "./indeling";
 import { Mixer } from "./Mixer";
 import { bouwMixer, telHandwerk, terugNaarAuto } from "./mixer";
+import { volgPieken } from "./meters";
 import { Patchbay, type Plekken } from "./Patchbay";
 
 type Tab = "audio" | "midi";
@@ -32,6 +33,10 @@ export default function App() {
   const [bevestig, setBevestig] = useState(false);
 
   useEffect(() => volgGraaf(setGraaf), []);
+  // De nep-pieken willen de huidige graph weten; een ref houdt die bij.
+  const graafRef = useRef(graaf);
+  graafRef.current = graaf;
+  useEffect(() => volgPieken(() => graafRef.current), []);
   useEffect(() => {
     try {
       localStorage.setItem(VERBORGEN, JSON.stringify([...verborgen]));

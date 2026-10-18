@@ -1,8 +1,9 @@
 pub mod graaf;
+pub mod meter;
 
 use tauri::{Emitter, Manager, State};
 
-use graaf::{Graaf, Momentopname, Opdracht};
+use graaf::{Graaf, Melding, Momentopname, Opdracht};
 
 #[tauri::command]
 fn haal_graaf(g: State<Graaf>) -> Momentopname {
@@ -48,8 +49,13 @@ pub fn run() {
         }))
         .setup(|app| {
             let handle = app.handle().clone();
-            app.manage(Graaf::start(Box::new(move |m| {
-                let _ = handle.emit("graaf", m);
+            app.manage(Graaf::start(Box::new(move |m| match m {
+                Melding::Graaf(g) => {
+                    let _ = handle.emit("graaf", g);
+                }
+                Melding::Pieken(p) => {
+                    let _ = handle.emit("pieken", p);
+                }
             })));
             Ok(())
         })

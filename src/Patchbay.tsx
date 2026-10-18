@@ -13,6 +13,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ontkoppel, verbind } from "./api";
 import type { Indeling, Module } from "./indeling";
 import { IcoonTegel } from "./iconen";
+import { MeterBalk } from "./Meter";
 
 export const BREEDTE = 280;
 const KOP = 45; // 44 + de rand eronder
@@ -225,6 +226,13 @@ function ModuleKaart({
           <div className="titel">{m.titel}</div>
           <div className="onder">{m.onder}</div>
         </div>
+        {m.meter.length > 0 && (
+          <div className="mini-meters">
+            {m.meter.map((k, i) => (
+              <MeterBalk key={i} knoop={m.knoop} kanalen={k} klein />
+            ))}
+          </div>
+        )}
       </header>
       <ul className="poorten">
         {m.poorten.map((p) => (

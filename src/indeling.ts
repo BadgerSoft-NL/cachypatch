@@ -36,6 +36,10 @@ export interface Module {
   icoon: Icoon;
   /** Niet actief: gedimd tekenen. */
   stil: boolean;
+  /** De node, voor de meter. */
+  knoop: number;
+  /** Per meterbalkje de kanalen (plek in de node), of leeg: geen meter. */
+  meter: number[][];
   poorten: PoortRij[];
 }
 
@@ -54,6 +58,13 @@ export interface Indeling {
 }
 
 /** De volgorde van de groepen, per kant. De titels zijn alleen intern. */
+/** Twee balkjes: de even en de oneven kanalen, of één bij mono. */
+function balkjes(n: number): number[][] {
+  const alle = Array.from({ length: n }, (_, i) => i);
+  if (n < 2) return [alle];
+  return [alle.filter((i) => i % 2 === 0), alle.filter((i) => i % 2 === 1)];
+}
+
 const VOLGORDE: Record<Soort, string[]> = {
   audio: [
     "Apps · playing",
@@ -81,7 +92,7 @@ export function deelIn(g: Graaf, soort: Soort): Indeling {
     verbonden.add(k.in_poort);
   }
 
-  const voeg = (groep: string, m: Omit<Module, "poorten">, poorten: Poort[]) => {
+  const voeg: Voeg = (groep, m, poorten, meter = false) => {
     if (poorten.length === 0) return;
     const rijen = [...poorten]
       .sort((a, b) => (a.volgnummer ?? a.id) - (b.volgnummer ?? b.id) || a.id - b.id)
@@ -89,7 +100,12 @@ export function deelIn(g: Graaf, soort: Soort): Indeling {
         zichtbaar.add(p.id);
         return { id: p.id, label: poortLabel(p, soort), verbonden: verbonden.has(p.id) };
       });
-    modules.push({ groep, module: { ...m, poorten: rijen } });
+    const knoop = poorten[0].knoop;
+    // De meter telt de kanalen in poortvolgorde, net als graaf.rs.
+    modules.push({
+      groep,
+      module: { ...m, poorten: rijen, knoop, meter: meter ? balkjes(rijen.length) : [] },
+    });
   };
 
   // Poorten per node, alleen van deze soort.
@@ -136,7 +152,7 @@ export function deelIn(g: Graaf, soort: Soort): Indeling {
   };
 }
 
-type Voeg = (groep: string, m: Omit<Module, "poorten">, poorten: Poort[]) => void;
+type Voeg = (groep: string, m: Omit<Module, "poorten" | "knoop" | "meter">, poorten: Poort[], meter?: boolean) => void;
 
 function audioModules(g: Graaf, k: Knoop, poorten: Poort[], voeg: Voeg, verborgen: Set<string>) {
   const klasse = k.klasse ?? "";
@@ -164,6 +180,7 @@ function audioModules(g: Graaf, k: Knoop, poorten: Poort[], voeg: Voeg, verborge
         stil,
       },
       uit,
+      true,
     );
     voeg(
       "Apps · recording",
@@ -195,6 +212,7 @@ function audioModules(g: Graaf, k: Knoop, poorten: Poort[], voeg: Voeg, verborge
       stil,
     },
     uit,
+    apparaat,
   );
   voeg(
     !apparaat ? "Other · in" : fysiek ? "Hardware out" : "Virtual out",
@@ -207,6 +225,7 @@ function audioModules(g: Graaf, k: Knoop, poorten: Poort[], voeg: Voeg, verborge
       stil,
     },
     ins,
+    apparaat,
   );
 }
 
