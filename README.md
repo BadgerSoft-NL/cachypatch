@@ -23,9 +23,13 @@ Early, but in daily use. What works now:
   destination carries. Rows can be hidden and resized; right-click a row to
   make them all equal again. In Destinations, drag the grip between the
   outputs and the Rec buses to share the width; each side scrolls on its own.
+
+  ![Editing the mix for Out 3/4: every app goes there, and In 1/2 has a custom route](docs/screenshots/2-mixer-routing.png)
 - **Audio patchbay**, ordered: sources on the left, destinations on the
   right, with mini level meters. Drag between dots to connect, click a cable
   to disconnect. Modules can be dragged; **Rearrange** puts them back.
+
+  ![The audio patchbay: sources on the left, destinations on the right](docs/screenshots/4-patchbay.png)
 - **Recorder**: *Rec buses* sit in their own box among the destinations,
   stereo or split into two mono buses. Add one with **+ Bus**, remove one with
   its **×** (the buses after it move up, routes and all). Pick a bus, then
@@ -35,6 +39,10 @@ Early, but in daily use. What works now:
   disarming a bus while recording drops it in or out. Every bus becomes one
   WAV (32-bit float), and every take goes to its own
   `~/Recordings/YYYY-MM-DD_HHMM/`. **Folder** opens it.
+
+  ![Recording Spotify on Rec 1/2](docs/screenshots/3-recording.png)
+
+  ![Recording four buses at once: Spotify, Firefox and two hardware inputs](docs/screenshots/5-multitrack.png)
 - **Lives in the system tray** ("Status and Notifications" in KDE), like
   CachyMix. Click the icon to show or hide the window; right-click for the
   menu. Closing the window keeps it running, and recordings keep going.
