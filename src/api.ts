@@ -76,8 +76,8 @@ export const LEEG: Graaf = {
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 
-/** De node-naam van Pecan Patch' eigen opname-ingang. */
-export const BUS = "pecanpatch-opname";
+/** De node-naam van de eigen opname-ingang van Pecan Mixer. */
+export const BUS = "pecanmixer-opname";
 
 export function isBus(k: { naam: string }): boolean {
   return k.naam === BUS;
@@ -468,7 +468,7 @@ function nepGraaf(): Graaf {
   const discordMic = knoop({ naam: "WEBRTC VoiceEngine", app: "Discord", media: "recStream", klasse: "Stream/Input/Audio" });
   const dcMic = poort(discordMic, "input_MONO", true, { kanaal: "MONO" });
 
-  const bus = knoop({ naam: BUS, app: "Pecan Patch", beschrijving: "Rec bus", klasse: "Stream/Input/Audio" });
+  const bus = knoop({ naam: BUS, app: "Pecan Mixer", beschrijving: "Rec bus", klasse: "Stream/Input/Audio" });
   const busIn = [0, 1].map((i) => poort(bus, `rec_${i + 1}`, true, { kanaal: `AUX${i}` }));
   const busMidi = poort(bus, "midi_in", true, { soort: "midi" });
 

@@ -10,7 +10,7 @@
 use std::sync::mpsc;
 use std::time::Duration;
 
-use pecanpatch_lib::graaf::{BusOpname, Graaf, Melding, Momentopname, Opdracht, Opties, TransportStand};
+use pecanmixer_lib::graaf::{BusOpname, Graaf, Melding, Momentopname, Opdracht, Opties, TransportStand};
 
 fn main() {
     let (tx, rx) = mpsc::channel::<Momentopname>();
@@ -40,7 +40,7 @@ fn main() {
     let bus = m
         .knopen
         .iter()
-        .filter(|k| k.naam == "pecanpatch-opname")
+        .filter(|k| k.naam == "pecanmixer-opname")
         .find(|k| m.poorten.iter().any(|p| p.knoop == k.id && p.naam == "rec_3"))
         .expect("Rec bus met drie kanalen");
     let sinus = m.knopen.iter().find(|k| k.naam == "cp-test-sinus").expect("cp-test-sinus");

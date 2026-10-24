@@ -1,9 +1,9 @@
 //! MIDI-activiteit: wat er uit elke MIDI-uitgang komt.
 //!
-//! Eén eigen node (`pecanpatch-meter-midi`, dus buiten de momentopname) met
+//! Eén eigen node (`pecanmixer-meter-midi`, dus buiten de momentopname) met
 //! per bronpoort een MIDI-ingang, gekoppeld met een eigen link. MIDI mag naar
 //! meer plekken tegelijk, dus dat verandert niets aan de routing. De link
-//! heeft geen `object.linger`: hij verdwijnt met Pecan Patch.
+//! heeft geen `object.linger`: hij verdwijnt met Pecan Mixer.
 //!
 //! pipewire-rs heeft geen veilige filter-API, dus dit praat met `pw_filter`
 //! zoals miau-core dat doet. Zonder `RT_PROCESS`: de process-callback draait
@@ -28,7 +28,7 @@ use serde::Serialize;
 use crate::meter::VOORVOEGSEL;
 use crate::opname::{Klok, Opnemer};
 
-pub const NAAM: &str = "pecanpatch-meter-midi";
+pub const NAAM: &str = "pecanmixer-meter-midi";
 
 /// Vaste ABI-waarden van `spa_control_type`.
 const SPA_CONTROL_MIDI: u32 = 2;
@@ -81,7 +81,7 @@ impl MidiMeter {
             *pw::keys::MEDIA_CATEGORY => "Monitor",
             *pw::keys::MEDIA_ROLE => "DSP",
             *pw::keys::NODE_NAME => NAAM,
-            *pw::keys::APP_NAME => "Pecan Patch",
+            *pw::keys::APP_NAME => "Pecan Mixer",
             "node.passive" => "true",
             "node.autoconnect" => "false",
         };
@@ -188,7 +188,7 @@ impl MidiMeter {
         }
     }
 
-    /// Het node-id van de meter. Niet de naam: een tweede Pecan Patch (een
+    /// Het node-id van de meter. Niet de naam: een tweede Pecan Mixer (een
     /// voorbeeld naast de app) heeft een node die net zo heet.
     pub fn knoop_id(&self) -> Option<u32> {
         // SAFETY: het filter leeft.

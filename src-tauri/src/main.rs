@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    pecanpatch_lib::run()
+    pecanmixer_lib::run()
 }

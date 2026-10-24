@@ -1,11 +1,11 @@
-# Pecan Patch
+# Pecan Mixer
 
 A patchbay and mixer for PipeWire on Linux. A tidier successor to qpwgraph,
 and a sibling of [CachyMix](https://github.com/BadgerSoft-NL/cachymix-rme-ff-400).
 
-Pecan Patch is a plain PipeWire client: it reads nodes, ports and links, and
+Pecan Mixer is a plain PipeWire client: it reads nodes, ports and links, and
 makes and removes links. WirePlumber stays in charge of policy; you
-reach for Pecan Patch when you want to deviate from what it auto-connects —
+reach for Pecan Mixer when you want to deviate from what it auto-connects —
 for example to record Spotify, a browser tab and a microphone at once.
 
 ## Status
