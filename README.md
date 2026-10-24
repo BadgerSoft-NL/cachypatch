@@ -8,6 +8,8 @@ makes and removes links. WirePlumber stays in charge of policy; you
 reach for Pecan Mixer when you want to deviate from what it auto-connects —
 for example to record Spotify, a browser tab and a microphone at once.
 
+![The audio mixer: apps, hardware inputs and destinations, routing to Out 1/2](docs/screenshots/1-mixer.png)
+
 ## Status
 
 Early, but in daily use. What works now:
