@@ -131,6 +131,10 @@ voorbeeld en testgereedschap, geen dependency.
 Publiek op https://github.com/BadgerSoft-NL/pecanmixer (GPL-3.0). Release:
 `NO_STRIP=true npm run tauri build -- --bundles appimage`, dan de AppImage met
 een `.sha256` op een GitHub-release (notes in het Engels), zoals CachyMix.
+GitHub maakt van de spatie in de bestandsnaam een punt
+(`Pecan.Mixer_0.1.0_amd64.AppImage`): maak de `.sha256` op die naam, anders
+faalt `sha256sum -c` na het downloaden. De AppImage niet zelf starten om te
+proberen: AppImageLauncher verplaatst hem dan naar `~/Applications`.
 
 ## Twee talen
 

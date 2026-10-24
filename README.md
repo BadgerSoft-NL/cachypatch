@@ -56,8 +56,8 @@ Download the AppImage from the
 make it executable and run it:
 
 ```bash
-chmod +x "Pecan Mixer_"*_amd64.AppImage
-./"Pecan Mixer_"*_amd64.AppImage
+chmod +x Pecan.Mixer_*_amd64.AppImage
+./Pecan.Mixer_*_amd64.AppImage
 ```
 
 Right-click the tray icon and tick **Start at login** if you want it to
