@@ -202,7 +202,7 @@ pub type Melder = Box<dyn Fn(Melding) + Send + 'static>;
 #[derive(Clone, Debug)]
 pub enum Opdracht {
     /// Een link van een uitgangspoort naar een ingangspoort. Blijft bestaan
-    /// als Pecan Patch sluit (`object.linger`): wat je patcht, blijft gepatcht.
+    /// als Pecan Mixer sluit (`object.linger`): wat je patcht, blijft gepatcht.
     Verbind { uit: u32, naar: u32 },
     /// Een link weghalen, van wie hij ook is.
     Ontkoppel { kabel: u32 },
@@ -237,7 +237,7 @@ impl Graaf {
         let gedeeld = Arc::clone(&laatste);
         let (tx, rx) = pw::channel::channel();
         std::thread::Builder::new()
-            .name("pecanpatch-graaf".to_owned())
+            .name("pecanmixer-graaf".to_owned())
             .spawn(move || draad(gedeeld, melder, rx))
             .expect("graph-draad starten");
         Self {
@@ -277,7 +277,7 @@ fn draad(
         rx = match sessie(Rc::clone(&meld), Rc::clone(&overig), rx) {
             (Ok(()), rx) => rx,
             (Err(fout), rx) => {
-                eprintln!("pecanpatch: PipeWire: {fout}");
+                eprintln!("pecanmixer: PipeWire: {fout}");
                 rx
             }
         };
@@ -615,7 +615,7 @@ fn sessie(
             let mainloop = mainloop.downgrade();
             move |id, _seq, _res, bericht| {
                 if id == 0 {
-                    eprintln!("pecanpatch: PipeWire-core: {bericht}");
+                    eprintln!("pecanmixer: PipeWire-core: {bericht}");
                     if let Some(l) = mainloop.upgrade() {
                         l.quit();
                     }
@@ -1058,7 +1058,7 @@ fn uitvoeren(
                         g.pop_front();
                     }
                 }
-                Err(fout) => eprintln!("pecanpatch: link {uit} → {naar}: {fout}"),
+                Err(fout) => eprintln!("pecanmixer: link {uit} → {naar}: {fout}"),
             }
         }
         Opdracht::Ontkoppel { kabel } => {

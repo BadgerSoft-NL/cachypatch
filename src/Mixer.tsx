@@ -260,7 +260,7 @@ export function rijSleutel(id: RijId): string {
 
 // Hoe hoog de rijen zijn, als verhouding (flex-grow). Een voorkeur van de
 // weergave, dus die mag blijven.
-const HOOGTES = "pecanpatch.rijen";
+const HOOGTES = "pecanmixer.rijen";
 const GELIJK: Record<RijId, number> = { apps: 1, hardware: 1, bestemmingen: 1 };
 /** Zo laag mag een rij worden bij het slepen, in pixels. */
 const MIN_HOOGTE = 110;

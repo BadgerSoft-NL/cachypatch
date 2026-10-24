@@ -38,7 +38,7 @@ export interface BusDef {
 }
 
 export const UIT_DB = -90;
-const OPSLAG = "pecanpatch.bussen";
+const OPSLAG = "pecanmixer.bussen";
 const BEGIN: BusConfig = {
   bussen: [2],
   stand: {},

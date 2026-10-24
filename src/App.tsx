@@ -27,10 +27,10 @@ type Weergave = "mixer" | "patchbay";
 
 // Welke strips je in de mixer hebt verborgen. Dat is een voorkeur van de
 // weergave, geen routing, dus die mag blijven.
-const VERBORGEN = "pecanpatch.verborgen";
+const VERBORGEN = "pecanmixer.verborgen";
 
 // De klok-keuzes van de transportbalk; ook een voorkeur, geen routing.
-const KLOK = "pecanpatch.klok";
+const KLOK = "pecanmixer.klok";
 export interface KlokKeuze {
   klok: number | null;
   start_stop: boolean;
@@ -204,7 +204,7 @@ export default function App() {
     <div className="app">
       <header className="kop">
         <div className="merk">
-          <span className="naam">Pecan Patch</span>
+          <span className="naam">Pecan Mixer</span>
           <span className="merk-versie">{version}</span>
           <span className="pw">PipeWire</span>
         </div>

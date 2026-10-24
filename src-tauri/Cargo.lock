@@ -2550,7 +2550,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "pecanpatch"
+name = "pecanmixer"
 version = "0.1.0"
 dependencies = [
  "hound",

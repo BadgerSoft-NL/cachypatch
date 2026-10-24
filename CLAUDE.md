@@ -1,4 +1,4 @@
-# Pecan Patch
+# Pecan Mixer
 
 Patchbay en mixer voor PipeWire, als Tauri-app: React-schil, Rust-kant die
 een gewone PipeWire-client is. Betere opvolger van qpwgraph; zusje van
@@ -10,7 +10,7 @@ Concept en ontwerp staan in Nokta (`CachyPatch.nokta`, notities **Concept** en
 
 ## Uitgangspunten
 
-- **Niet tegen WirePlumber in zwemmen.** WirePlumber doet het beleid; Pecan Patch
+- **Niet tegen WirePlumber in zwemmen.** WirePlumber doet het beleid; Pecan Mixer
   is er voor als je ervan wilt afwijken.
 - Routes verplaatsen via `target.object` in de `default`-metadata, zoals
   pavucontrol. Handmatige links alleen waar dat niet volstaat.
@@ -34,7 +34,7 @@ Concept en ontwerp staan in Nokta (`CachyPatch.nokta`, notities **Concept** en
 - `src-tauri/src/midimeter.rs` — één `pw_filter`-node met per MIDI-uitgang een
   ingang en een eigen link (zonder linger). Telt events, kanalen, soorten en
   het laatste muzikale event. Event `midi`. Raw `pw_sys`, zoals miau-core.
-- `src-tauri/src/opname.rs` — de Rec bus (`pecanpatch-opname`, een zichtbare
+- `src-tauri/src/opname.rs` — de Rec bus (`pecanmixer-opname`, een zichtbare
   `pw_filter`-node met `rec_1…rec_N` (`AUX0…`) en `midi_in`, `media.class`
   `Stream/Input/Audio`, `node.autoconnect=false`). Per kanaal een gain en een
   piek (event `pieken`, onder het eigen node-id). Opnemen gaat in **takes**,
@@ -58,7 +58,7 @@ Concept en ontwerp staan in Nokta (`CachyPatch.nokta`, notities **Concept** en
   oude weg en de laatste kanalen. De stand verhuist mee. Een uitgang en een
   rec-bus kies je los van elkaar; op elke bron gaat de groene knop naar de
   uitgang en R (altijd zichtbaar, naast M) naar de bus.
-- Eigen nodes heten `pecanpatch-meter-…` en blijven met hun poorten en links
+- Eigen nodes heten `pecanmixer-meter-…` en blijven met hun poorten en links
   buiten de momentopname. Bus en MIDI-meter herkennen zichzelf aan hun
   node-id (`pw_filter_get_node_id`), niet aan de naam: een voorbeeld naast de
   app heeft nodes die net zo heten.
@@ -79,7 +79,7 @@ Concept en ontwerp staan in Nokta (`CachyPatch.nokta`, notities **Concept** en
   WirePlumber hem zou leggen (stream zonder doel → standaard, eerste paar),
   wie hem ook legde; al het andere is "manual".
   Aanzetten van een losstaande stream: naar zijn WirePlumber-doel legt
-  Pecan Patch de links zelf, naar een andere hele node gaat het via
+  Pecan Mixer de links zelf, naar een andere hele node gaat het via
   `target.object`; anders handmatige links. Uitzetten: alleen links weg (een
   doel wissen zou de stream meteen terugsturen).
   Back to auto: handmatige links weg, doelen wissen, losstaande streams zelf
@@ -106,7 +106,7 @@ Concept en ontwerp staan in Nokta (`CachyPatch.nokta`, notities **Concept** en
 
 `pipewire` 0.10, dezelfde versie als miau-core (`~/code/miau-core`). Die kan
 later de Opname-bus (`io::Client`), MIDI-parsing en SMF leveren, maar is nog
-privé en Pecan Patch is publiek.
+privé en Pecan Mixer is publiek.
 
 ## Twee talen
 
@@ -117,7 +117,7 @@ Wat op het scherm komt is Engels; identifiers, commentaar en commits Nederlands.
 ```bash
 npm run dev                          # alleen de schil, met nagemaakte graph (api.ts)
 npm run tauri dev                    # de hele app
-npm run tauri build -- --no-bundle   # src-tauri/target/release/pecanpatch
+npm run tauri build -- --no-bundle   # src-tauri/target/release/pecanmixer
 cargo run --example graaf            # vanuit src-tauri/: de graph als JSON, schrijft niets
 cargo run --example proef -- <stream> <sink>   # probeert alle opdrachten op een stream
 cargo run --example meters           # drie seconden pieken per node
@@ -137,7 +137,7 @@ naar `src-tauri/target/echt.json` en open
 - Een `target.object` dat niet verandert doet niets, ook als de stream intussen
   los staat. Wissen na een echt doel zet hem terug op de standaard.
 - `-1` zet terug naar de standaard, maar niet meer zodra er een andere link aan
-  de stream hangt (zoals onze meter). Daarom gebruikt Pecan Patch het niet.
+  de stream hangt (zoals onze meter). Daarom gebruikt Pecan Mixer het niet.
 - Links van WirePlumber weghalen: hij legt ze niet terug. Zo zet de mixer een
   route uit.
 - Stream-naar-stream via `target.object` werkt (recorder volgt speler).

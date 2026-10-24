@@ -1,14 +1,14 @@
 [package]
-name = "pecanpatch"
+name = "pecanmixer"
 version = "0.1.0"
 description = "Patchbay en mixer voor PipeWire"
 license = "GPL-3.0-or-later"
-repository = "https://github.com/BadgerSoft-NL/pecanpatch"
+repository = "https://github.com/BadgerSoft-NL/pecanmixer"
 authors = ["Jetse"]
 edition = "2021"
 
 [lib]
-name = "pecanpatch_lib"
+name = "pecanmixer_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

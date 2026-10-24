@@ -6,7 +6,7 @@
 //! eraan hangt. `node.passive` houdt de graph niet wakker, `node.dont-reconnect`
 //! voorkomt dat de meter naar de standaard springt als zijn node verdwijnt.
 //!
-//! Deze nodes heten `pecanpatch-meter-…`; [`super::graaf`] laat ze weg uit de
+//! Deze nodes heten `pecanmixer-meter-…`; [`super::graaf`] laat ze weg uit de
 //! momentopname, want het zijn geen routes van de gebruiker.
 //!
 //! Geen `RT_PROCESS`: de process-callback draait dan op de gewone loop van de
@@ -21,7 +21,7 @@ use pw::spa::pod::{Object, Pod, Value};
 use pw::stream::{StreamFlags, StreamListener, StreamRc};
 
 /// Het voorvoegsel van de eigen meter-nodes.
-pub const VOORVOEGSEL: &str = "pecanpatch-meter-";
+pub const VOORVOEGSEL: &str = "pecanmixer-meter-";
 
 pub struct Meter {
     _stream: StreamRc,
@@ -60,7 +60,7 @@ pub fn maak(
         *pw::keys::MEDIA_ROLE => "DSP",
         *pw::keys::NODE_NAME => format!("{VOORVOEGSEL}{knoop}"),
         *pw::keys::MEDIA_NAME => "Level meter",
-        *pw::keys::APP_NAME => "Pecan Patch",
+        *pw::keys::APP_NAME => "Pecan Mixer",
         "target.object" => serial.to_string(),
         "node.passive" => "true",
         "node.dont-reconnect" => "true",
