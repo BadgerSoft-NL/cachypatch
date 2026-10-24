@@ -220,6 +220,16 @@ button:disabled {
   border-color: color-mix(in srgb, var(--soort) 45%, var(--strip-rand));
 }
 
+/* Nog niet beschikbaar (MIDI): wel te zien, niet te kiezen. */
+.keuze.keuze-uit {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.keuze.keuze-uit button {
+  pointer-events: none;
+}
+
 .keuze.audio button[aria-pressed="true"],
 .keuze.midi button[aria-pressed="true"] {
   background: var(--soort);
@@ -424,21 +434,71 @@ button:disabled {
 
 /* WebKitGTK tekent zijn scrollbalk standaard als overlay, bovenop de
    mute-knoppen. Een eigen stijl maakt er een gewone balk van. */
-.rij-strips::-webkit-scrollbar {
+.rij-strips::-webkit-scrollbar,
+.deel::-webkit-scrollbar {
   height: 8px;
 }
 
-.rij-strips::-webkit-scrollbar-track {
+.rij-strips::-webkit-scrollbar-track,
+.deel::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.rij-strips::-webkit-scrollbar-thumb {
+.rij-strips::-webkit-scrollbar-thumb,
+.deel::-webkit-scrollbar-thumb {
   background: var(--strip-rand);
   border-radius: 4px;
 }
 
-.rij-strips::-webkit-scrollbar-thumb:hover {
+.rij-strips::-webkit-scrollbar-thumb:hover,
+.deel::-webkit-scrollbar-thumb:hover {
   background: var(--zacht);
+}
+
+/* Destinations in twee delen: uitgangen en rec-bussen, elk met een eigen
+   scrollbalk en een greep ertussen. De rij zelf scrollt dan niet. */
+.rij-strips:has(> .deling) {
+  overflow: hidden;
+  padding: 0;
+}
+
+.deling {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.deel {
+  display: flex;
+  gap: 3px;
+  padding: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-width: 0;
+}
+
+/* Zonder versleepte breedte: zo breed als de strips, zolang het past. */
+.deel-links {
+  flex: 0 1 auto;
+}
+
+.deel-rechts {
+  flex: 1 1 0;
+  min-width: 120px;
+}
+
+.deel-greep {
+  flex: none;
+  width: 6px;
+  margin: 4px 0;
+  border-radius: 3px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.deel-greep:hover,
+.deel-greep.sleept {
+  background: var(--strip-rand);
 }
 
 .leeg-rij {
@@ -860,7 +920,6 @@ button:disabled {
   cursor: crosshair !important;
 }
 
-
 .module {
   position: absolute;
   background: var(--module);
@@ -1202,59 +1261,6 @@ button:disabled {
   flex: none;
 }
 
-.opneem {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 12px;
-  border: 1px solid #5a2a2c;
-  border-radius: 4px;
-  background: var(--strip);
-  color: #ff7a7e;
-  font-weight: 700;
-}
-
-.opneem .rondje {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: currentColor;
-}
-
-.opneem.bezig {
-  border-color: var(--rood);
-  background: var(--rood);
-  color: #fff;
-}
-
-.opneem.bezig .rondje {
-  border-radius: 1px;
-}
-
-.tijd-vak {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.2;
-}
-
-.tijd {
-  font-family: "IBM Plex Mono", ui-monospace, monospace;
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--zacht);
-  font-variant-numeric: tabular-nums;
-}
-
-.tijd.bezig {
-  color: #ff7a7e;
-}
-
-.map {
-  font-family: "IBM Plex Mono", ui-monospace, monospace;
-  font-size: 10px;
-  color: var(--zachter);
-}
-
 .groep {
   display: flex;
   align-items: center;
@@ -1316,10 +1322,6 @@ button:disabled {
   color: #6fe394;
 }
 
-.fout {
-  color: var(--rood);
-}
-
 .strip.opname {
   border-color: var(--rood);
   box-shadow: 0 0 0 1px var(--rood) inset;
@@ -1373,7 +1375,7 @@ button:disabled {
   display: flex;
   gap: 3px;
   flex: none;
-  margin: 0 12px;
+  margin: 0 4px;
   padding: 2px;
   border: 1px solid color-mix(in srgb, var(--rood) 30%, var(--strip-rand));
   border-radius: 6px;
@@ -1435,9 +1437,43 @@ button:disabled {
   color: #fff;
 }
 
-.knop-opneem.aan .rondje,
 .rec-alles.aan .rondje {
   border-radius: 1px;
+}
+
+/* Gewapend is rood; neemt hij ook echt op, dan knippert hij zacht. */
+.knop-opneem.neemt-op {
+  animation: neemt-op 1.2s ease-in-out infinite;
+}
+
+@keyframes neemt-op {
+  50% {
+    background: color-mix(in srgb, var(--rood) 55%, var(--strip));
+  }
+}
+
+/* De lopende tijd boven Rec all, en wat er misging eronder. */
+.looptijd {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  color: var(--zacht);
+  font-variant-numeric: tabular-nums;
+}
+
+.looptijd.bezig {
+  color: #ff7a7e;
+}
+
+.bus-fout {
+  font-size: 9px;
+  line-height: 1.25;
+  color: #ff7a7e;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
 }
 
 .bus-erbij .rec-alles {

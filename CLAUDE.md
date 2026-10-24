@@ -39,7 +39,7 @@ Concept en ontwerp staan in Nokta (`CachyPatch.nokta`, notities **Concept** en
   `Stream/Input/Audio`, `node.autoconnect=false`). Per kanaal een gain en een
   piek (event `pieken`, onder het eigen node-id). Opnemen gaat in **takes**,
   elk met een eigen map en schrijfdraad, en er kunnen er meer tegelijk lopen.
-  Record all (`Opdracht::Start`) = één take met alle bussen met bronnen plus
+  Record (`Opdracht::Start`) = één take met alle gewapende bussen plus
   MIDI, uit één process-ronde dus sample-precies gelijk. Een bus los
   (`StartBus`) = een eigen take; `StopBus` sluit alleen zijn WAV, en de take
   stopt met zijn laatste bus. Een bus die al opneemt, doet niet nog eens mee.
@@ -57,7 +57,22 @@ Concept en ontwerp staan in Nokta (`CachyPatch.nokta`, notities **Concept** en
   hun routes worden eerst naar de nieuwe kanalen gelegd, dan pas gaan de
   oude weg en de laatste kanalen. De stand verhuist mee. Een uitgang en een
   rec-bus kies je los van elkaar; op elke bron gaat de groene knop naar de
-  uitgang en R (altijd zichtbaar, naast M) naar de bus.
+  uitgang en R (altijd zichtbaar, naast M) naar de bus. ● op een bus armt
+  hem zoals in Ableton (`arm`: klik = alleen deze, Ctrl+klik = erbij of
+  eraf; `gewapend` in de stand). Record neemt de gewapende bussen op
+  (`Opties.bussen`); tijdens een opname start een bij-gearmde bus als eigen
+  take (`StartBus`) en stopt een gedisarmde (`StopBus`).
+- `src-tauri/src/tray.rs` — icoon in Status and Notifications via `ksni`
+  (StatusNotifierItem over D-Bus), zoals CachyMix; niet via de tray van
+  Tauri, die gaat over libayatana en kent alleen een menu. Klik = venster
+  tonen/verbergen, rechtsklik = menu (status, opname, Stop all recordings,
+  Start at login, Quit). Venster sluiten = verbergen; Quit stopt eerst een
+  lopende opname. Het icoon krijgt alleen veranderingen door (`werk_bij`).
+- `src-tauri/src/autostart.rs` — `~/.config/autostart/nl.jetse.pecanmixer.desktop`
+  met `--hidden`. In een AppImage wijst hij naar `$APPIMAGE`.
+- **MIDI staat uit** (`graaf::MIDI` en `MIDI_AAN` in api.ts): nog niet getest
+  met echte apparaten. Dan geen MIDI-meter, geen `midi_in` op de Rec bus, geen
+  externe klok; de MIDI-knoppen staan grijs als placeholder.
 - Eigen nodes heten `pecanmixer-meter-…` en blijven met hun poorten en links
   buiten de momentopname. Bus en MIDI-meter herkennen zichzelf aan hun
   node-id (`pw_filter_get_node_id`), niet aan de naam: een voorbeeld naast de
@@ -93,6 +108,10 @@ Concept en ontwerp staan in Nokta (`CachyPatch.nokta`, notities **Concept** en
   dezelfde lijst) en tussen twee rijen versleep je de hoogte (flex-grow per
   rij, ook in `localStorage`; dubbelklik = die twee gelijk). Rechtsklik op een
   rij (niet op een strip) of greep: alle rijen gelijk, of de rij verbergen.
+  Destinations bestaat uit twee delen (`Deling`): links de uitgangen
+  (hardware, dan apps die opnemen), rechts het Rec-vak, elk met een eigen
+  scrollbalk. De greep ertussen zet de breedte van het linker deel
+  (`localStorage`); dubbelklik = zo breed als zijn strips.
 - `src/meters.ts` — één animatielus zet de meterbalkjes direct in de DOM
   (−60…0 dBFS, val 24 dB/s, piek 1 s), zodat React niet 25×/s hertekent.
 - `src/midi.ts`, `src/MidiMeter.tsx` — MIDI-activiteit met 150 ms nagloei; een
@@ -104,9 +123,14 @@ Concept en ontwerp staan in Nokta (`CachyPatch.nokta`, notities **Concept** en
   "Disconnect all" in plaats van "Back to auto".
 - Node-ids zijn per sessie; herkennen via `node.name`, `port.name`, serials.
 
-`pipewire` 0.10, dezelfde versie als miau-core (`~/code/miau-core`). Die kan
-later de Opname-bus (`io::Client`), MIDI-parsing en SMF leveren, maar is nog
-privé en Pecan Mixer is publiek.
+`pipewire` 0.10, dezelfde versie als miau-core (`~/code/miau-core`, publiek op
+https://github.com/BadgerSoft-NL/miau-core, MIT OR Apache-2.0). Die kan later
+de Opname-bus (`io::Client`), MIDI-parsing en SMF leveren; nu is het alleen
+voorbeeld en testgereedschap, geen dependency.
+
+Publiek op https://github.com/BadgerSoft-NL/pecanmixer (GPL-3.0). Release:
+`NO_STRIP=true npm run tauri build -- --bundles appimage`, dan de AppImage met
+een `.sha256` op een GitHub-release (notes in het Engels), zoals CachyMix.
 
 ## Twee talen
 

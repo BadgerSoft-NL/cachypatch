@@ -15,7 +15,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["image-png"] }
+# Het tray-icoon: StatusNotifierItem rechtstreeks over D-Bus, zodat een klik
+# de app opent en het menu op de rechterklik zit. Zie tray.rs.
+ksni = { version = "0.3", features = ["blocking"] }
 # Twee vensters die om beurten links leggen en weghalen helpt niemand.
 tauri-plugin-single-instance = "2"
 # Dezelfde versie als miau-core, zodat die er later naast kan.

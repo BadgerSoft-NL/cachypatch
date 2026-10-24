@@ -4,16 +4,18 @@
 //
 // De rec-bussen staan in een eigen vak tussen de bestemmingen, met de
 // koppelknop (stereo of twee mono) zoals in CachyMix. Hun fader en M werken op
-// de bus zelf; ● neemt die ene bus op, × haalt hem weg. Rechts ernaast Record
-// all (alle bussen met bronnen samen, sample-precies gelijk), + Bus en Folder
-// (de map van de laatste take, of ~/Recordings). Een
-// uitgang en een rec-bus kies je los van elkaar: de groene knop op een bron
-// gaat naar de uitgang, R ernaast naar de bus.
+// de bus zelf; ● armt hem zoals in Ableton (klik = alleen deze, Ctrl+klik =
+// erbij), × haalt hem weg. Rechts ernaast Record (alle gewapende bussen samen,
+// sample-precies gelijk), + Bus en Folder (de map van de laatste take, of
+// ~/Recordings). Een uitgang en een rec-bus kies je los van elkaar: de groene
+// knop op een bron gaat naar de uitgang, R ernaast naar de bus.
 
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { openMap, startBus, startOpname, stopBus, stopOpname, zetVolume, type TransportStand } from "./api";
 import {
+  arm,
   busErbij,
+  gewapend,
   standVan,
   wisselKoppeling,
   type BusConfig,
@@ -21,6 +23,7 @@ import {
 } from "./bussen";
 import { muteStap, schakelRoute, volumeVastleggen } from "./handelingen";
 import { MeterBalk } from "./Meter";
+import { Looptijd } from "./Transport";
 import {
   MAX_DB,
   UIT_DB,
@@ -116,8 +119,19 @@ export function Mixer({
                     }
                   : undefined,
                 neemtOp,
-                neemOp: () =>
-                  neemtOp ? stopBus(def.bestand) : startBus({ naam: def.bestand, kanalen: def.kanalen }),
+                gewapend: !!stand.gewapend,
+                arm: (erbij: boolean) => {
+                  const nieuw = arm(busConfig, def.sleutel, erbij);
+                  // Tijdens een opname valt een bus die erbij komt meteen in,
+                  // en stopt een bus die eraf gaat; de rest loopt door.
+                  if (transport.bezig) {
+                    const was = new Set(gewapend(busConfig).map((b) => b.sleutel));
+                    const wordt = new Set(gewapend(nieuw).map((b) => b.sleutel));
+                    for (const b of gewapend(nieuw)) if (!was.has(b.sleutel)) startBus({ naam: b.bestand, kanalen: b.kanalen });
+                    for (const b of gewapend(busConfig)) if (!wordt.has(b.sleutel)) stopBus(b.bestand);
+                  }
+                  zetBusConfig(() => nieuw);
+                },
                 weg: busConfig.bussen.length > 1 ? () => busWeg(def.plek) : undefined,
               };
             return (
@@ -145,42 +159,52 @@ export function Mixer({
               </Kaart>
             );
           };
-          // De rec-bussen in een eigen vak, met + / − erbij; de uitgangen
-          // ervoor en erna (hardware, dan apps die opnemen).
+          // Twee delen met een versleepbare scheiding: links de uitgangen
+          // (hardware, dan apps die opnemen), rechts de rec-bussen met
+          // Record, + Bus en Folder. Elk deel scrollt voor zich.
           const lijst = mixer.bestemmingen.filter(zichtbaar);
-          const eerste = lijst.findIndex((d) => d.bus);
-          if (eerste < 0) return lijst.map(kaart);
+          if (!lijst.some((d) => d.bus)) return lijst.map(kaart);
           return [
-            ...lijst.slice(0, eerste).filter((d) => !d.bus).map(kaart),
-            <div key="bussen" className="bus-vak" role="group" aria-label="Rec buses">
-              {lijst.filter((d) => d.bus).map(kaart)}
-              <div className="bus-erbij">
-                <button
-                  className={"knop rec-alles" + (transport.bezig ? " aan" : "")}
-                  aria-pressed={transport.bezig}
-                  title={
-                    transport.bezig
-                      ? "Stop every recording bus"
-                      : "Start every Rec bus with sources at once, sample-aligned"
-                  }
-                  onClick={() => (transport.bezig ? stopOpname() : startOpname())}
-                >
-                  <span className="rondje" aria-hidden="true" />
-                  {transport.bezig ? "Stop all" : "Rec all"}
-                </button>
-                <button className="knop" title="Add a stereo Rec bus" onClick={() => zetBusConfig(busErbij)}>
-                  + Bus
-                </button>
-                <button
-                  className="knop map-open"
-                  title={`Open ${transport.map ?? "~/Recordings"} in the file manager`}
-                  onClick={() => openMap(transport.map)}
-                >
-                  Folder
-                </button>
-              </div>
-            </div>,
-            ...lijst.slice(eerste).filter((d) => !d.bus).map(kaart),
+            <Deling
+              key="deling"
+              links={lijst.filter((d) => !d.bus).map(kaart)}
+              rechts={
+                <div className="bus-vak" role="group" aria-label="Rec buses">
+                  {lijst.filter((d) => d.bus).map(kaart)}
+                  <div className="bus-erbij">
+                    <Looptijd stand={transport} />
+                    <button
+                      className={"knop rec-alles" + (transport.bezig ? " aan" : "")}
+                      aria-pressed={transport.bezig}
+                      title={
+                        transport.bezig
+                          ? "Stop recording"
+                          : "Record every armed bus at once, sample-aligned"
+                      }
+                      onClick={() => (transport.bezig ? stopOpname() : startOpname())}
+                    >
+                      <span className="rondje" aria-hidden="true" />
+                      {transport.bezig ? "Stop" : "Record"}
+                    </button>
+                    <button className="knop" title="Add a stereo Rec bus" onClick={() => zetBusConfig(busErbij)}>
+                      + Bus
+                    </button>
+                    <button
+                      className="knop map-open"
+                      title={`Open ${transport.map ?? "~/Recordings"} in the file manager`}
+                      onClick={() => openMap(transport.map)}
+                    >
+                      Folder
+                    </button>
+                    {transport.fout && (
+                      <span className="bus-fout" role="alert" title={transport.fout}>
+                        {transport.fout}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              }
+            />,
           ];
         })();
 
@@ -340,6 +364,76 @@ function Greep({
   );
 }
 
+// Hoe breed het uitgangendeel van Destinations is, in pixels; null = zo
+// breed als zijn strips (zolang dat past). Een voorkeur van de weergave.
+const DELING = "pecanmixer.deling";
+/** Zo smal mag een deel worden bij het slepen. */
+const MIN_DEEL = 120;
+
+/** Twee delen naast elkaar met een greep ertussen. Slepen zet de breedte
+ *  van het linker deel, dubbelklik zet hem terug op "zo breed als nodig". */
+function Deling({ links, rechts }: { links: ReactNode[]; rechts: ReactNode }) {
+  const [breedte, zetBreedte] = useState<number | null>(() => {
+    try {
+      const b = JSON.parse(localStorage.getItem(DELING) ?? "null");
+      return typeof b === "number" ? b : null;
+    } catch {
+      return null;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(DELING, JSON.stringify(breedte));
+    } catch {
+      // Dan is hij na een herstart weer zo breed als nodig.
+    }
+  }, [breedte]);
+  const linksRef = useRef<HTMLDivElement>(null);
+
+  return (
+    <div className="deling">
+      <div
+        ref={linksRef}
+        className="deel deel-links"
+        style={breedte === null ? undefined : { flex: `0 0 ${breedte}px` }}
+      >
+        {links.length ? links : <p className="zacht leeg-rij">No outputs.</p>}
+      </div>
+      <div
+        className="deel-greep"
+        role="separator"
+        aria-orientation="vertical"
+        title="Drag to resize, double-click to fit the outputs"
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          e.preventDefault();
+          const el = e.currentTarget;
+          const begin = linksRef.current?.getBoundingClientRect().width ?? 0;
+          const totaal = el.parentElement?.getBoundingClientRect().width ?? 0;
+          el.setPointerCapture(e.pointerId);
+          el.classList.add("sleept");
+          const x0 = e.clientX;
+          const beweeg = (ev: PointerEvent) => {
+            const max = Math.max(MIN_DEEL, totaal - MIN_DEEL - el.offsetWidth);
+            zetBreedte(Math.round(Math.min(max, Math.max(MIN_DEEL, begin + ev.clientX - x0))));
+          };
+          const los = () => {
+            el.classList.remove("sleept");
+            el.removeEventListener("pointermove", beweeg);
+            el.removeEventListener("pointerup", los);
+            el.removeEventListener("pointercancel", los);
+          };
+          el.addEventListener("pointermove", beweeg);
+          el.addEventListener("pointerup", los);
+          el.addEventListener("pointercancel", los);
+        }}
+        onDoubleClick={() => zetBreedte(null)}
+      />
+      <div className="deel deel-rechts">{rechts}</div>
+    </div>
+  );
+}
+
 function Rij({
   titel,
   leeg,
@@ -492,7 +586,9 @@ function Kaart({
     zet: (w: Partial<BusStand>) => void;
     koppel?: { gekoppeld: boolean; wissel: () => void };
     neemtOp: boolean;
-    neemOp: () => void;
+    gewapend: boolean;
+    /** Klik = alleen deze, `erbij` (Ctrl+klik) = deze erbij of eraf. */
+    arm: (erbij: boolean) => void;
     /** Weghalen; ontbreekt bij de enige bus. */
     weg?: () => void;
   };
@@ -617,13 +713,13 @@ function Kaart({
         )}
         {bus && (
           <button
-            className={"knop knop-opneem" + (bus.neemtOp ? " aan" : "")}
-            aria-pressed={bus.neemtOp}
-            aria-label={`${bus.neemtOp ? "Stop" : "Record"} ${s.naam}`}
-            title={bus.neemtOp ? `Stop recording ${s.naam}` : `Record ${s.naam} on its own`}
+            className={"knop knop-opneem" + (bus.gewapend ? " aan" : "") + (bus.neemtOp ? " neemt-op" : "")}
+            aria-pressed={bus.gewapend}
+            aria-label={`${bus.gewapend ? "Disarm" : "Arm"} ${s.naam}`}
+            title={`${bus.gewapend ? "Armed" : "Arm"} ${s.naam} for recording. Click arms only this bus, Ctrl+click adds or removes it.`}
             onClick={(e) => {
               e.stopPropagation();
-              bus.neemOp();
+              bus.arm(e.ctrlKey || e.metaKey);
             }}
           >
             <span className="rondje" aria-hidden="true" />
