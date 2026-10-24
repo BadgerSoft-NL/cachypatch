@@ -1,7 +1,7 @@
 // De rec-bussen: hoe de kanalen van de Rec bus in bussen zijn ingedeeld, en
-// per bus de fader en mute. Zoals de uitgangen in CachyMix: een stereobus,
-// of gesplitst in twee mono's. Elke bus neemt los op; Record all start alle
-// bussen met bronnen samen.
+// per bus de fader, mute en of hij gewapend is. Zoals de uitgangen in
+// CachyMix: een stereobus, of gesplitst in twee mono's. Armen gaat zoals in
+// Ableton (zie `arm`); Record neemt alle gewapende bussen samen op.
 //
 // Dit is configuratie, geen routing: het mag bewaard blijven. De Rust-kant
 // krijgt het aantal kanalen en de gain per kanaal; wat er naar een bus gaat,
@@ -12,6 +12,8 @@ import { isBus, ontkoppel, verbind, zetBus, type Graaf } from "./api";
 export interface BusStand {
   db: number;
   mute: boolean;
+  /** Klaar om op te nemen: Record neemt hem mee. */
+  gewapend?: boolean;
 }
 
 export interface BusConfig {
@@ -41,7 +43,8 @@ export const UIT_DB = -90;
 const OPSLAG = "pecanmixer.bussen";
 const BEGIN: BusConfig = {
   bussen: [2],
-  stand: {},
+  // Een nieuwe gebruiker kan meteen op Record drukken.
+  stand: { "rec-1-2": { db: 0, mute: false, gewapend: true } },
   midi: true,
 };
 
@@ -90,6 +93,32 @@ export function bussen(c: BusConfig): BusDef[] {
 
 export function standVan(c: BusConfig, sleutel: string): BusStand {
   return c.stand[sleutel] ?? { db: 0, mute: false };
+}
+
+/** De bussen die gewapend zijn, in volgorde. */
+export function gewapend(c: BusConfig): BusDef[] {
+  return bussen(c).filter((b) => standVan(c, b.sleutel).gewapend);
+}
+
+/**
+ * Armen zoals in Ableton: een klik armt alleen deze bus en zet de andere uit
+ * (of zet hem zelf uit als hij de enige was); met `erbij` (Ctrl+klik) gaat
+ * alleen deze aan of uit en blijven de andere zoals ze zijn.
+ */
+export function arm(c: BusConfig, sleutel: string, erbij: boolean): BusConfig {
+  const alle = bussen(c);
+  const aan = new Set(gewapend(c).map((b) => b.sleutel));
+  if (erbij) {
+    if (aan.has(sleutel)) aan.delete(sleutel);
+    else aan.add(sleutel);
+  } else {
+    const alleenDeze = aan.size === 1 && aan.has(sleutel);
+    aan.clear();
+    if (!alleenDeze) aan.add(sleutel);
+  }
+  const stand = { ...c.stand };
+  for (const b of alle) stand[b.sleutel] = { ...standVan(c, b.sleutel), gewapend: aan.has(b.sleutel) };
+  return { ...c, stand };
 }
 
 function kanaalTal(c: BusConfig): number {

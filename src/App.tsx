@@ -3,6 +3,7 @@ import { version } from "../package.json";
 import {
   isBus,
   LEEG,
+  MIDI_AAN,
   STIL,
   volgGraaf,
   volgTransport,
@@ -16,7 +17,7 @@ import { haalKabelsWeg, terugNaarAutoStap } from "./handelingen";
 import { deelIn } from "./indeling";
 import { Mixer, rijSleutel } from "./Mixer";
 import { bouwMixer, telHandwerk, zetBusDefs } from "./mixer";
-import { bewaarBussen, bussen, busWeg, leesBussen, stuurBussen, type BusConfig } from "./bussen";
+import { bewaarBussen, bussen, busWeg, gewapend, leesBussen, stuurBussen, type BusConfig } from "./bussen";
 import { volgPieken } from "./meters";
 import { volgMidi } from "./midi";
 import { bouwMidiMixer, MidiMixer } from "./MidiMixer";
@@ -130,22 +131,19 @@ export default function App() {
     zetBusDefs(busDefs);
     return bouwMixer(graaf);
   }, [graaf, busDefs]);
-  // De bussen die opnemen: waar een bron heen gaat (R op de bron).
-  const bezet = busDefs.filter((b) => {
-    const d = mixer.bestemmingen.find((x) => x.bus?.sleutel === b.sleutel);
-    return !!d && [...mixer.apps, ...mixer.hardware].some((s) => mixer.route(s, d).stand.soort !== "uit");
-  });
-  const bezetSleutel = bezet.map((b) => b.sleutel).join(" ");
+  // Wat Record opneemt: de gewapende bussen (● op de bus).
+  const armSet = gewapend(busConfig);
+  const armSleutel = armSet.map((b) => b.sleutel).join(" ");
   // Wat de Rust-kant moet weten: die bussen, de MIDI-ingang en de klok.
   // Opnieuw na een herverbinding.
   useEffect(() => {
     if (!graaf.verbonden) return;
     zetTransport({
-      bussen: bezet.map((b) => ({ naam: b.bestand, kanalen: b.kanalen })),
-      midi: busConfig.midi,
-      ...klok,
+      bussen: armSet.map((b) => ({ naam: b.bestand, kanalen: b.kanalen })),
+      midi: MIDI_AAN && busConfig.midi,
+      ...(MIDI_AAN ? klok : { klok: null, start_stop: false }),
     });
-  }, [bezetSleutel, busConfig.midi, klok, graaf.verbonden]);
+  }, [armSleutel, busConfig.midi, klok, graaf.verbonden]);
   const midiMixer = useMemo(() => bouwMidiMixer(graaf), [graaf]);
   const midiBewerkt =
     midiMixer.bestemmingen.find((d) => d.sleutel === midiBewerktSleutel) ??
@@ -218,26 +216,38 @@ export default function App() {
           </span>
         )}
         <nav className="weergaven" aria-label="View">
-          {(["audio", "midi"] as const).map((t) => (
-            <div key={t} className={`keuze ${t}`} role="group" aria-label={t === "audio" ? "Audio" : "MIDI"}>
-              <button
-                className="keuze-label"
-                title={`${t === "audio" ? "Audio" : "MIDI"} ${laatste[t]}`}
-                onClick={() => kiesWeergave(t, laatste[t])}
+          {(["audio", "midi"] as const).map((t) => {
+            // MIDI is er nog niet: de knoppen staan er, maar doen niets.
+            const uit = t === "midi" && !MIDI_AAN;
+            return (
+              <div
+                key={t}
+                className={`keuze ${t}${uit ? " keuze-uit" : ""}`}
+                role="group"
+                aria-label={t === "audio" ? "Audio" : "MIDI"}
+                title={uit ? "MIDI is not available yet" : undefined}
               >
-                {t === "audio" ? "Audio" : "MIDI"}
-              </button>
-              {(["mixer", "patchbay"] as const).map((w) => (
                 <button
-                  key={w}
-                  aria-pressed={tab === t && weergave === w}
-                  onClick={() => kiesWeergave(t, w)}
+                  className="keuze-label"
+                  title={uit ? undefined : `${t === "audio" ? "Audio" : "MIDI"} ${laatste[t]}`}
+                  disabled={uit}
+                  onClick={() => kiesWeergave(t, laatste[t])}
                 >
-                  {w === "mixer" ? "Mixer" : "Patchbay"}
+                  {t === "audio" ? "Audio" : "MIDI"}
                 </button>
-              ))}
-            </div>
-          ))}
+                {(["mixer", "patchbay"] as const).map((w) => (
+                  <button
+                    key={w}
+                    aria-pressed={tab === t && weergave === w}
+                    disabled={uit}
+                    onClick={() => kiesWeergave(t, w)}
+                  >
+                    {w === "mixer" ? "Mixer" : "Patchbay"}
+                  </button>
+                ))}
+              </div>
+            );
+          })}
         </nav>
         <div className="keuze" role="group" aria-label="History">
           <button
@@ -350,14 +360,14 @@ export default function App() {
         </div>
       )}
 
-      {opMixer && (
+      {/* De tijd en fouten staan in het Rec-vak; deze balk is er alleen
+          voor MIDI. */}
+      {opMixer && MIDI_AAN && (
         <Transport
-          tab={tab}
           graaf={graaf}
           stand={transport}
           klok={klok}
           zetKlok={setKlok}
-          gewapend={bezet.map((b) => b.naam)}
           midiGewapend={busConfig.midi}
           midiNaarBus={midiNaarBus}
         />

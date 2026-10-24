@@ -1,7 +1,6 @@
-// De transportbalk onder de kop, in beide mixers: de lopende tijd, de map,
-// wat Record all start en de klok. Opnemen zelf doe je bij de bussen: ● per
-// bus, of Record all naast het busvak. Elke bus één WAV, de MIDI-ingang één
-// .mid (alleen met Record all).
+// De MIDI-balk onder de kop: of de MIDI-ingang van de bus gewapend is, en de
+// klok voor het MIDI-bestand. Alleen als MIDI aan staat (`MIDI_AAN`); opnemen
+// zelf, de tijd en fouten staan in het Rec-vak van de mixer (`Looptijd`).
 
 import { useEffect, useState } from "react";
 import type { Graaf, TransportStand } from "./api";
@@ -9,27 +8,21 @@ import type { KlokKeuze } from "./App";
 import { midiDing, poortLabel } from "./indeling";
 
 export function Transport({
-  tab,
   graaf,
   stand,
   klok,
   zetKlok,
-  gewapend,
   midiGewapend,
   midiNaarBus,
 }: {
-  tab: "audio" | "midi";
   graaf: Graaf;
   stand: TransportStand;
   klok: KlokKeuze;
   zetKlok: (k: KlokKeuze) => void;
-  /** De bussen die Record all start: waar een bron heen gaat. */
-  gewapend: string[];
   midiGewapend: boolean;
   /** Namen van de MIDI-bronnen die nu naar de Rec bus gaan. */
   midiNaarBus: string[];
 }) {
-  const tijd = useLopendeTijd(stand);
   const knopen = new Map(graaf.knopen.map((k) => [k.id, k]));
   const klokbronnen = graaf.poorten
     .filter((p) => p.soort === "midi" && !p.ingang && knopen.has(p.knoop))
@@ -40,21 +33,9 @@ export function Transport({
     .filter((b) => !b.doorvoer);
   const extern = klok.klok !== null;
   const zet = (o: Partial<KlokKeuze>) => zetKlok({ ...klok, ...o });
-  const rate = graaf.rate ? `${Math.round(graaf.rate / 1000)}k` : "?";
 
   return (
-    <section className="transport" aria-label="Recording">
-      <div className="tijd-vak">
-        <span className={`tijd${stand.bezig ? " bezig" : ""}`}>{tijd}</span>
-        <span className="map">{stand.map ?? "~/Recordings/"}</span>
-      </div>
-      {tab === "audio" && (
-        <div className="groep" role="group" aria-label="Rec all">
-          <span className="label">Rec all</span>
-          <span className={gewapend.length ? "gewapend" : "zacht"}>{gewapend.join(", ") || "none"}</span>
-          <span className="mono zacht">WAV · 32f · {rate}</span>
-        </div>
-      )}
+    <section className="transport" aria-label="MIDI recording">
       <div className="groep" role="group" aria-label="MIDI">
         <span className="label">MIDI</span>
         <span className={midiGewapend ? "gewapend" : "zacht"}>{midiGewapend ? "armed" : "off"}</span>
@@ -93,7 +74,6 @@ export function Transport({
           </>
         )}
       </div>
-      {stand.fout && <span className="fout">{stand.fout}</span>}
     </section>
   );
 }
@@ -107,8 +87,9 @@ function Vinkje({ aan, zet, tekst }: { aan: boolean; zet: (v: boolean) => void; 
   );
 }
 
-/** De lopende tijd, tussen twee meldingen door bijgeteld. */
-function useLopendeTijd(stand: TransportStand): string {
+/** De lopende tijd van de oudste take, tussen twee meldingen door
+ *  bijgeteld: m:ss.t, met uren ervoor zodra het langer duurt. */
+export function Looptijd({ stand }: { stand: TransportStand }) {
   const [, tik] = useState(0);
   const [ontvangen, setOntvangen] = useState(() => performance.now());
   useEffect(() => setOntvangen(performance.now()), [stand]);
@@ -120,6 +101,11 @@ function useLopendeTijd(stand: TransportStand): string {
   const s = stand.bezig ? stand.seconden + (performance.now() - ontvangen) / 1000 : stand.seconden;
   const u = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  return `${String(u).padStart(2, "0")}:${String(m).padStart(2, "0")}:${sec.toFixed(1).padStart(4, "0")}`;
+  const sec = (s % 60).toFixed(1).padStart(4, "0");
+  const tekst = u > 0 ? `${u}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
+  return (
+    <span className={`looptijd${stand.bezig ? " bezig" : ""}`} aria-label="Recording time">
+      {tekst}
+    </span>
+  );
 }

@@ -5,12 +5,12 @@
 //! kanalen in bussen in: een stereopaar of twee mono's, zoals de uitgangen in
 //! CachyMix. Je routeert er bronnen heen zoals naar elke andere bestemming;
 //! PipeWire telt alles op één ingang op. Elke bus neemt op als een eigen
-//! take: één WAV in een eigen map. **Record all** start alle bussen met
-//! bronnen samen in één take, en omdat ze uit één node en één process-ronde
+//! take: één WAV in een eigen map. **Record** start alle gewapende bussen
+//! samen in één take, en omdat ze uit één node en één process-ronde
 //! komen, liggen ze sample-precies gelijk. `node.autoconnect = false`:
 //! WirePlumber hangt er anders de standaard-microfoon aan.
 //!
-//! **MIDI** komt per bronpoort uit [`crate::midimeter`]: wat bij Record all
+//! **MIDI** komt per bronpoort uit [`crate::midimeter`]: wat bij Record
 //! naar de MIDI-ingang van de bus gerouteerd is, krijgt een eigen spoor.
 //!
 //! Alle process-callbacks draaien op de loop van de graph-draad (geen
@@ -437,7 +437,12 @@ impl Bus {
         let binnen = Box::new(RefCell::new(BusBinnen {
             kanalen: Vec::new(),
             // SAFETY: filter leeft, nog niet verbonden.
-            midi: unsafe { bus_poort(filter, DSP_MIDI, "midi_in", None) },
+            midi: if crate::graaf::MIDI {
+                // SAFETY: filter leeft, nog niet verbonden.
+                unsafe { bus_poort(filter, DSP_MIDI, "midi_in", None) }
+            } else {
+                ptr::null_mut()
+            },
             gain: Vec::new(),
             pieken: Vec::new(),
             opnemer,

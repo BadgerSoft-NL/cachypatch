@@ -79,6 +79,10 @@ const inTauri = "__TAURI_INTERNALS__" in window;
 /** De node-naam van de eigen opname-ingang van Pecan Mixer. */
 export const BUS = "pecanmixer-opname";
 
+/** MIDI staat voorlopig uit: nog niet getest met echte apparaten. De knoppen
+ *  blijven als placeholder staan. Aan de Rust-kant is het `graaf::MIDI`. */
+export const MIDI_AAN = false;
+
 export function isBus(k: { naam: string }): boolean {
   return k.naam === BUS;
 }
@@ -93,7 +97,7 @@ export interface BusOpname {
 }
 
 export interface Opties {
-  /** Wat Record all start: de bussen waar een bron heen gaat. */
+  /** Wat Record start: de gewapende bussen. */
   bussen: BusOpname[];
   /** De MIDI-ingang van de bus is gewapend. */
   midi: boolean;
@@ -124,7 +128,7 @@ export const STIL: TransportStand = {
 };
 
 let nepTransportVolger: ((t: TransportStand) => void) | undefined;
-// Nep: per lopende bus wanneer hij begon, en wat Record all zou starten.
+// Nep: per lopende bus wanneer hij begon, en wat Record zou starten.
 const nepBussen = new Map<string, number>();
 let nepOpties: Opties | null = null;
 let nepMap: string | null = null;
@@ -195,7 +199,7 @@ export function zetBus(kanalen: number, gain: number[]) {
   });
 }
 
-/** Record all: alle bussen met bronnen (en MIDI) samen, in één take. */
+/** Record: alle gewapende bussen (en MIDI) samen, in één take. */
 export function startOpname() {
   if (inTauri) return void invoke("start_opname");
   nepNeemOp(nepOpties?.bussen ?? []);

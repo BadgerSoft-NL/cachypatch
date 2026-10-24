@@ -159,6 +159,12 @@ pub enum Melding<'a> {
     Transport(&'a TransportStand),
 }
 
+/// MIDI staat voorlopig uit: nog niet getest met echte apparaten. Dan geen
+/// MIDI-meter (die legt links naar elke MIDI-uitgang), geen MIDI-ingang op de
+/// Rec bus en geen externe klok. De schil heeft een eigen schakelaar
+/// (`MIDI_AAN` in api.ts).
+pub const MIDI: bool = false;
+
 /// Eén bus: een WAV met deze kanalen van de Rec bus. De naam is ook de
 /// bestandsnaam, en zo stop je hem weer.
 #[derive(Clone, Debug, serde::Deserialize)]
@@ -167,10 +173,10 @@ pub struct BusOpname {
     pub kanalen: Vec<usize>,
 }
 
-/// Wat Record all doet, en de klok.
+/// Wat Record doet, en de klok.
 #[derive(Clone, Debug, serde::Deserialize)]
 pub struct Opties {
-    /// De bussen waar een bron heen gaat.
+    /// De gewapende bussen.
     pub bussen: Vec<BusOpname>,
     /// De MIDI-ingang van de bus is gewapend.
     pub midi: bool,
@@ -216,7 +222,7 @@ pub enum Opdracht {
     ZetTransport(Opties),
     /// Hoeveel kanalen de Rec bus heeft, en hun gain (lineair, 0 = mute).
     ZetBus { kanalen: usize, gain: Vec<f32> },
-    /// Record all: de bussen en MIDI uit de opties, samen in één take.
+    /// Record: de gewapende bussen en MIDI uit de opties, samen in één take.
     Start,
     /// Eén bus in een eigen take.
     StartBus(BusOpname),
@@ -753,7 +759,7 @@ fn sessie(
                 if k.bron != opties.klok {
                     k.recent.clear();
                 }
-                k.bron = opties.klok;
+                k.bron = opties.klok.filter(|_| MIDI);
                 k.start_stop = opties.start_stop;
                 transport.borrow_mut().opties = Some(opties);
             }
@@ -780,7 +786,9 @@ fn sessie(
     // Eén meter per node die geluid maakt of ontvangt.
     let meters: Rc<RefCell<BTreeMap<u32, Meter>>> = Rc::default();
     // En één node die alle MIDI-uitgangen afluistert.
-    let midi = Rc::new(RefCell::new(MidiMeter::maak(&core, Rc::clone(&opnemer), Rc::clone(&klok))));
+    let midi = Rc::new(RefCell::new(
+        MIDI.then(|| MidiMeter::maak(&core, Rc::clone(&opnemer), Rc::clone(&klok))).flatten(),
+    ));
     let tikken = std::cell::Cell::new(0u32);
 
     let timer = mainloop.loop_().add_timer({
@@ -906,7 +914,7 @@ impl Transport {
     }
 }
 
-/// Start een take in een nieuwe map. `None` = Record all: de bussen en MIDI
+/// Start een take in een nieuwe map. `None` = Record: de bussen en MIDI
 /// uit de opties, samen. Anders alleen die ene bus. Een bus die al opneemt,
 /// doet niet nog eens mee.
 fn begin(s: &Staat, t: &mut Transport, opnemer: &Opnemer, bus: Option<u32>, een: Option<BusOpname>) {
@@ -920,7 +928,7 @@ fn begin(s: &Staat, t: &mut Transport, opnemer: &Opnemer, bus: Option<u32>, een:
         .into_iter()
         .filter(|b| !b.kanalen.is_empty() && !lopend.contains(&b.naam))
         .collect();
-    let midi = alles && opties.midi && !opnemer.borrow().iter().any(|a| !a.midi_namen.is_empty());
+    let midi = MIDI && alles && opties.midi && !opnemer.borrow().iter().any(|a| !a.midi_namen.is_empty());
     match plan(s, &bussen, midi, bus) {
         Err(e) => {
             // Alles loopt al: dan is er niets mis.
@@ -997,7 +1005,7 @@ fn plan(s: &Staat, bussen: &[BusOpname], midi: bool, bus: Option<u32>) -> Result
     }
 
     if sporen.is_empty() && sporen_midi.is_empty() {
-        return Err("Nothing to record: route a source to a Rec bus".into());
+        return Err("Nothing armed: press ● on a Rec bus".into());
     }
     Ok((sporen, lijst, sporen_midi, midi_namen))
 }

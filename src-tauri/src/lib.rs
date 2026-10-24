@@ -1,9 +1,11 @@
+pub mod autostart;
 pub mod graaf;
 pub mod meter;
 pub mod midimeter;
 pub mod opname;
+pub mod tray;
 
-use tauri::{Emitter, Manager, State};
+use tauri::{Emitter, Manager, State, WindowEvent};
 
 use graaf::{BusOpname, Graaf, Melding, Momentopname, Opdracht, Opties};
 
@@ -79,16 +81,34 @@ fn zet_mute(g: State<Graaf>, knoop: u32, mute: bool) {
 
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
-            if let Some(venster) = app.get_webview_window("main") {
-                let _ = venster.unminimize();
-                let _ = venster.set_focus();
+        // Een tweede start (uit het menu, terwijl hij al in de tray staat)
+        // haalt alleen het venster van de eerste tevoorschijn.
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| tray::toon_venster(app)))
+        .on_window_event(|venster, e| {
+            // Sluiten is verbergen: de app blijft in de tray, en routes,
+            // meters en opnames lopen door. Stoppen gaat via Quit in de tray.
+            if let WindowEvent::CloseRequested { api, .. } = e {
+                if venster.app_handle().try_state::<tray::Tray>().is_some() {
+                    api.prevent_close();
+                    let _ = venster.hide();
+                }
             }
-        }))
+        })
         .setup(|app| {
+            tray::maak(app.handle());
+            autostart::werk_bij();
+            // Met --hidden (zo start de autostart hem) blijft het venster dicht.
+            if !std::env::args().any(|a| a == "--hidden") {
+                tray::toon_venster(app.handle());
+            }
             let handle = app.handle().clone();
             app.manage(Graaf::start(Box::new(move |m| match m {
                 Melding::Graaf(g) => {
+                    let (verbonden, rate) = (g.verbonden, g.rate);
+                    tray::werk_bij(&handle, |s| {
+                        s.verbonden = verbonden;
+                        s.rate = rate;
+                    });
                     let _ = handle.emit("graaf", g);
                 }
                 Melding::Pieken(p) => {
@@ -98,6 +118,10 @@ pub fn run() {
                     let _ = handle.emit("midi", m);
                 }
                 Melding::Transport(t) => {
+                    tray::werk_bij(&handle, |s| {
+                        s.opname = t.bezig;
+                        s.bussen = t.bussen.keys().cloned().collect();
+                    });
                     let _ = handle.emit("transport", t);
                 }
             })));
